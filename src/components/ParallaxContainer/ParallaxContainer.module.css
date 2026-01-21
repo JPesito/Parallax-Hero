@@ -1,0 +1,30 @@
+.container {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--parallax-bg, #000);
+  perspective: 1000px;
+  transform-style: preserve-3d;
+}
+
+.container.fullscreen {
+  min-height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport height para mobile */
+}
+
+.inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+
+/* Soporte para reducir movimiento (accesibilidad) */
+@media (prefers-reduced-motion: reduce) {
+  .container,
+  .container * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

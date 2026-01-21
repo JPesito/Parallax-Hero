@@ -1,0 +1,43 @@
+.lottieWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lottie {
+  width: 100%;
+  height: 100%;
+}
+
+.placeholder {
+  width: 100%;
+  height: 100%;
+  min-width: 50px;
+  min-height: 50px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+}
+
+/* Tamaños */
+.sizeXs { width: clamp(40px, 8vw, 80px); height: auto; }
+.sizeSm { width: clamp(60px, 12vw, 120px); height: auto; }
+.sizeMd { width: clamp(100px, 18vw, 200px); height: auto; }
+.sizeLg { width: clamp(150px, 25vw, 300px); height: auto; }
+.sizeXl { width: clamp(200px, 35vw, 450px); height: auto; }
+.size2xl { width: clamp(280px, 45vw, 600px); height: auto; }
+.sizeFull { width: 100%; height: 100%; }
+
+@media (max-width: 768px) {
+  .sizeXs { width: clamp(30px, 10vw, 60px); }
+  .sizeSm { width: clamp(50px, 15vw, 100px); }
+  .sizeMd { width: clamp(80px, 22vw, 160px); }
+  .sizeLg { width: clamp(120px, 30vw, 240px); }
+  .sizeXl { width: clamp(160px, 40vw, 350px); }
+  .size2xl { width: clamp(220px, 55vw, 480px); }
+}

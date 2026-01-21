@@ -1,0 +1,420 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import Lottie from 'lottie-react';
+import { useParallaxContext } from '../ParallaxContainer';
+
+// Factor de seguridad: la imagen será al menos este % más ancha que la pantalla
+const ZOOM_FACTOR_SEGURIDAD = 1.10;
+
+// ========================================
+// AUDIO MANAGER - Manejo centralizado del audio
+// ========================================
+const AudioManager = {
+  audio: null,
+  activeSpeakers: new Set(),
+  fadeInterval: null,
+  stopTimeout: null,
+  targetVolume: 0.5,
+  isPageVisible: true,
+  isUnlocked: false, // Audio desbloqueado por interacción del usuario
+  pendingPlay: false, // Hay un play pendiente esperando desbloqueo
+
+  init(soundSrc, volume = 0.5) {
+    if (!this.audio) {
+      this.audio = new Audio(soundSrc);
+      this.audio.loop = true;
+      this.audio.preload = 'auto';
+      this.audio.volume = 0;
+      this.targetVolume = volume;
+
+      // Escuchar cambios de visibilidad de la página
+      document.addEventListener('visibilitychange', () => {
+        this.isPageVisible = !document.hidden;
+        if (document.hidden) {
+          this.pauseImmediately();
+        } else if (this.activeSpeakers.size > 0) {
+          this.resume();
+        }
+      });
+
+      // Desbloquear audio al primer clic/touch en la página
+      const unlockAudio = () => {
+        if (!this.isUnlocked) {
+          this.isUnlocked = true;
+          // Si hay un play pendiente, reproducir ahora
+          if (this.pendingPlay && this.activeSpeakers.size > 0) {
+            this.audio.play().catch(() => {});
+            this.fadeIn();
+            this.pendingPlay = false;
+          }
+        }
+      };
+
+      document.addEventListener('click', unlockAudio, { once: false });
+      document.addEventListener('touchstart', unlockAudio, { once: false });
+    }
+    this.targetVolume = volume;
+  },
+
+  activate(speakerId) {
+    if (!this.audio || !this.isPageVisible) return;
+
+    // Cancelar fade out y stop timeout
+    if (this.fadeInterval) {
+      clearInterval(this.fadeInterval);
+      this.fadeInterval = null;
+    }
+    if (this.stopTimeout) {
+      clearTimeout(this.stopTimeout);
+      this.stopTimeout = null;
+    }
+
+    this.activeSpeakers.add(speakerId);
+
+    // Si el audio está desbloqueado, reproducir
+    if (this.isUnlocked) {
+      if (this.audio.paused) {
+        this.audio.play().catch(() => {});
+      }
+      this.fadeIn();
+    } else {
+      // Marcar como pendiente - se reproducirá cuando el usuario haga clic
+      this.pendingPlay = true;
+    }
+  },
+
+  deactivate(speakerId, delay = 5000) {
+    this.stopTimeout = setTimeout(() => {
+      this.activeSpeakers.delete(speakerId);
+
+      if (this.activeSpeakers.size === 0) {
+        this.fadeOut();
+      }
+    }, delay);
+  },
+
+  fadeIn(duration = 600) {
+    if (!this.audio) return;
+
+    if (this.fadeInterval) clearInterval(this.fadeInterval);
+
+    const steps = 15;
+    const stepTime = duration / steps;
+    const currentVol = this.audio.volume;
+    const volumeStep = (this.targetVolume - currentVol) / steps;
+
+    let step = 0;
+    this.fadeInterval = setInterval(() => {
+      step++;
+      if (step >= steps) {
+        this.audio.volume = this.targetVolume;
+        clearInterval(this.fadeInterval);
+        this.fadeInterval = null;
+      } else {
+        this.audio.volume = Math.min(this.targetVolume, currentVol + volumeStep * step);
+      }
+    }, stepTime);
+  },
+
+  fadeOut(duration = 1200) {
+    if (!this.audio) return;
+
+    if (this.fadeInterval) clearInterval(this.fadeInterval);
+
+    const steps = 20;
+    const stepTime = duration / steps;
+    const startVol = this.audio.volume;
+    const volumeStep = startVol / steps;
+
+    let step = 0;
+    this.fadeInterval = setInterval(() => {
+      step++;
+      if (step >= steps || this.audio.volume <= 0.01) {
+        this.audio.volume = 0;
+        this.audio.pause();
+        this.audio.currentTime = 0;
+        clearInterval(this.fadeInterval);
+        this.fadeInterval = null;
+      } else {
+        this.audio.volume = Math.max(0, startVol - volumeStep * step);
+      }
+    }, stepTime);
+  },
+
+  pauseImmediately() {
+    if (this.fadeInterval) clearInterval(this.fadeInterval);
+    if (this.audio && !this.audio.paused) {
+      this.audio.pause();
+    }
+  },
+
+  resume() {
+    if (this.audio && this.activeSpeakers.size > 0 && this.isPageVisible) {
+      this.audio.play().catch(() => {});
+      this.fadeIn();
+    }
+  },
+
+  forceStop() {
+    this.activeSpeakers.clear();
+    if (this.fadeInterval) clearInterval(this.fadeInterval);
+    if (this.stopTimeout) clearTimeout(this.stopTimeout);
+    if (this.audio) {
+      this.audio.volume = 0;
+      this.audio.pause();
+      this.audio.currentTime = 0;
+    }
+  }
+};
+
+// Componente para elementos interactivos
+const InteractiveElement = ({ element, style }) => {
+  const [isActive, setIsActive] = useState(false);
+  const [shakeOffset, setShakeOffset] = useState({ x: 0, y: 0, scale: 1 });
+  const shakeIntervalRef = useRef(null);
+  const localStopTimeoutRef = useRef(null);
+
+  // Inicializar audio si el elemento lo tiene
+  useEffect(() => {
+    if (element.soundSrc) {
+      AudioManager.init(element.soundSrc, element.volume || 0.5);
+    }
+  }, [element.soundSrc, element.volume]);
+
+  // Animación de vibración
+  useEffect(() => {
+    if (isActive && element.hoverEffect === 'shake') {
+      const intensity = element.shakeIntensity || 3;
+      shakeIntervalRef.current = setInterval(() => {
+        const x = (Math.random() - 0.5) * intensity;
+        const y = (Math.random() - 0.5) * (intensity * 0.5);
+        const scale = 1 + (Math.random() - 0.5) * 0.02;
+        setShakeOffset({ x, y, scale });
+      }, 60);
+    } else {
+      if (shakeIntervalRef.current) {
+        clearInterval(shakeIntervalRef.current);
+        shakeIntervalRef.current = null;
+      }
+      setShakeOffset({ x: 0, y: 0, scale: 1 });
+    }
+
+    return () => {
+      if (shakeIntervalRef.current) {
+        clearInterval(shakeIntervalRef.current);
+      }
+    };
+  }, [isActive, element.hoverEffect, element.shakeIntensity]);
+
+  const handleMouseEnter = () => {
+    if (element.interactive) {
+      // Cancelar timeout de parada si existe
+      if (localStopTimeoutRef.current) {
+        clearTimeout(localStopTimeoutRef.current);
+        localStopTimeoutRef.current = null;
+      }
+
+      setIsActive(true);
+
+      // Activar audio
+      if (element.soundSrc) {
+        AudioManager.activate(element.id);
+      }
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (element.interactive) {
+      const delay = element.stopDelay !== undefined ? element.stopDelay : 5000;
+
+      localStopTimeoutRef.current = setTimeout(() => {
+        setIsActive(false);
+
+        // Desactivar audio
+        if (element.soundSrc) {
+          AudioManager.deactivate(element.id, 0); // El delay ya se aplicó arriba
+        }
+      }, delay);
+    }
+  };
+
+  // Hitbox con control individual por lado (en porcentaje)
+  // hitboxPadding: aplica a todos los lados si no se especifica individualmente
+  // hitboxTop, hitboxBottom, hitboxLeft, hitboxRight: override individual
+  const defaultPadding = element.hitboxPadding || 0;
+  const hitboxTop = element.hitboxTop !== undefined ? element.hitboxTop : defaultPadding;
+  const hitboxBottom = element.hitboxBottom !== undefined ? element.hitboxBottom : defaultPadding;
+  const hitboxLeft = element.hitboxLeft !== undefined ? element.hitboxLeft : defaultPadding;
+  const hitboxRight = element.hitboxRight !== undefined ? element.hitboxRight : defaultPadding;
+
+  // Combinar transform del parallax (del style) con el del shake
+  const baseTransform = style.transform || '';
+  const shakeTransform = `translate(${shakeOffset.x}px, ${shakeOffset.y}px) scale(${shakeOffset.scale})`;
+
+  const containerStyle = {
+    ...style,
+    transform: baseTransform ? `${baseTransform} ${shakeTransform}` : shakeTransform,
+    pointerEvents: 'none',
+  };
+
+  // El hitbox es un div que recibe los eventos del mouse
+  const hitboxStyle = {
+    position: 'absolute',
+    top: `${hitboxTop}%`,
+    left: `${hitboxLeft}%`,
+    right: `${hitboxRight}%`,
+    bottom: `${hitboxBottom}%`,
+    cursor: element.interactive ? 'pointer' : 'default',
+    pointerEvents: element.interactive ? 'auto' : 'none',
+    boxSizing: 'border-box',
+  };
+
+  return (
+    <div style={containerStyle}>
+      {/* Contenido visual */}
+      {element.lottieData ? (
+        <Lottie
+          animationData={element.lottieData}
+          loop={element.loop !== false}
+          autoplay={true}
+          style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
+        />
+      ) : element.imageSrc ? (
+        <img
+          src={element.imageSrc}
+          alt=""
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            pointerEvents: 'none',
+          }}
+        />
+      ) : null}
+
+      {/* Hitbox invisible (con borde debug) */}
+      {element.interactive && (
+        <div
+          style={hitboxStyle}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        />
+      )}
+    </div>
+  );
+};
+
+const BackgroundGroup = ({
+  backgroundSrc,
+  backgroundWidth,
+  backgroundHeight,
+  elements = [], // Array de { id, lottieData, x, y, width, height, zIndex }
+  zIndex = 1,
+  invertX = true,
+}) => {
+  const mousePosition = useParallaxContext();
+  const [maxOffset, setMaxOffset] = useState(0);
+  const [imageStyle, setImageStyle] = useState({ height: '100vh', width: 'auto' });
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!backgroundWidth || !backgroundHeight) return;
+
+    const calculateDimensions = () => {
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const imageAspectRatio = backgroundWidth / backgroundHeight;
+      const potentialWidth = viewportHeight * imageAspectRatio;
+
+      let finalWidth;
+
+      if (potentialWidth < viewportWidth * ZOOM_FACTOR_SEGURIDAD) {
+        // NO ES SUFICIENTE: Forzar ancho para que sobre espacio lateral
+        finalWidth = viewportWidth * ZOOM_FACTOR_SEGURIDAD;
+        setImageStyle({
+          width: `${finalWidth}px`,
+          height: 'auto',
+          maxWidth: 'none',
+        });
+      } else {
+        // SÍ ES SUFICIENTE: Ajustar altura al 100vh
+        finalWidth = potentialWidth;
+        setImageStyle({
+          height: '100vh',
+          width: 'auto',
+          maxWidth: 'none',
+        });
+      }
+
+      const extraWidth = finalWidth - viewportWidth;
+      setMaxOffset(Math.max(0, (extraWidth / 2) - 2));
+    };
+
+    calculateDimensions();
+    window.addEventListener('resize', calculateDimensions);
+    return () => window.removeEventListener('resize', calculateDimensions);
+  }, [backgroundWidth, backgroundHeight]);
+
+  // Calcular transformación parallax
+  const xMult = invertX ? -1 : 1;
+  const translateX = mousePosition.x * 1 * maxOffset * xMult;
+
+  const containerStyle = {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: `translate(-50%, -50%) translate3d(${translateX}px, 0, 0)`,
+    zIndex,
+  };
+
+  const wrapperStyle = {
+    position: 'relative',
+    display: 'inline-block',
+  };
+
+  // Estilo para elementos posicionados sobre la imagen
+  // x, y, width, height están en píxeles de la imagen original
+  // depth: 1 = se mueve igual que el fondo, <1 = se mueve menos (más cerca de cámara)
+  const getElementStyle = (element) => {
+    // Convertir posición de píxeles a porcentaje de la imagen
+    const leftPercent = (element.x / backgroundWidth) * 100;
+    const topPercent = (element.y / backgroundHeight) * 100;
+    const widthPercent = (element.width / backgroundWidth) * 100;
+    const heightPercent = element.height ? (element.height / backgroundHeight) * 100 : 'auto';
+
+    // Calcular offset de parallax individual si el elemento tiene depth diferente
+    const elementDepth = element.depth !== undefined ? element.depth : 1;
+    const depthDiff = 1 - elementDepth; // Cuánto menos se mueve respecto al fondo
+    const elementOffsetX = translateX * depthDiff * -1; // Compensar para que se mueva menos
+
+    return {
+      position: 'absolute',
+      left: `${leftPercent}%`,
+      top: `${topPercent}%`,
+      width: `${widthPercent}%`,
+      height: heightPercent === 'auto' ? 'auto' : `${heightPercent}%`,
+      zIndex: element.zIndex || 1,
+      opacity: element.opacity !== undefined ? element.opacity : 1,
+      transform: elementDepth !== 1 ? `translate3d(${elementOffsetX}px, 0, 0)` : undefined,
+    };
+  };
+
+  return (
+    <div style={containerStyle}>
+      <div style={wrapperStyle}>
+        {/* Imagen de fondo */}
+        <img src={backgroundSrc} alt="" style={{ ...imageStyle, display: 'block' }} />
+
+        {/* Elementos posicionados sobre la imagen (Lotties o PNGs) */}
+        {elements.map((element) => (
+          <InteractiveElement
+            key={element.id}
+            element={element}
+            style={getElementStyle(element)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default BackgroundGroup;
