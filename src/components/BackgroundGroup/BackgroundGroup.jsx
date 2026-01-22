@@ -1,23 +1,32 @@
-import { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import Lottie from 'lottie-react';
-import { useParallaxContext } from '../ParallaxContainer';
 
-// Componente Lottie que NUNCA se re-renderiza (solo se monta una vez)
-const StableLottie = memo(({ animationData, loop }) => {
+// ========================================
+// COMPONENTES ESTABLES (NUNCA se re-renderizan)
+// ========================================
+
+// Lottie optimizado: usa canvas en móvil, memo estricto
+const StableLottie = memo(({ animationData, loop, isMobile }) => {
   return (
     <Lottie
       animationData={animationData}
       loop={loop}
       autoplay={true}
+      renderer={isMobile ? 'canvas' : 'svg'}
+      rendererSettings={isMobile ? {
+        preserveAspectRatio: 'xMidYMid slice',
+        progressiveLoad: true,
+      } : undefined}
       style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
     />
   );
 }, (prevProps, nextProps) => {
-  // Solo re-renderizar si cambia el animationData (nunca debería cambiar)
-  return prevProps.animationData === nextProps.animationData;
+  // Solo re-renderizar si cambia el animationData (nunca debería)
+  return prevProps.animationData === nextProps.animationData &&
+         prevProps.isMobile === nextProps.isMobile;
 });
 
-// Componente imagen que NUNCA se re-renderiza
+// Imagen estable
 const StableImage = memo(({ src }) => {
   return (
     <img
@@ -31,19 +40,17 @@ const StableImage = memo(({ src }) => {
       }}
     />
   );
-}, (prevProps, nextProps) => {
-  return prevProps.src === nextProps.src;
-});
+}, (prevProps, nextProps) => prevProps.src === nextProps.src);
 
-// Factor de seguridad para desktop: la imagen será al menos este % más ancha que la pantalla
+// ========================================
+// CONSTANTES
+// ========================================
 const ZOOM_FACTOR_DESKTOP = 1.10;
-// Factor para móvil: necesitamos más espacio lateral para el drag
 const ZOOM_FACTOR_MOBILE = 1.8;
-// Breakpoint para considerar móvil (portrait)
 const MOBILE_BREAKPOINT = 768;
 
 // ========================================
-// AUDIO MANAGER - Manejo centralizado del audio
+// AUDIO MANAGER
 // ========================================
 const AudioManager = {
   audio: null,
@@ -52,8 +59,8 @@ const AudioManager = {
   stopTimeout: null,
   targetVolume: 0.5,
   isPageVisible: true,
-  isUnlocked: false, // Audio desbloqueado por interacción del usuario
-  pendingPlay: false, // Hay un play pendiente esperando desbloqueo
+  isUnlocked: false,
+  pendingPlay: false,
 
   init(soundSrc, volume = 0.5) {
     if (!this.audio) {
@@ -63,7 +70,6 @@ const AudioManager = {
       this.audio.volume = 0;
       this.targetVolume = volume;
 
-      // Escuchar cambios de visibilidad de la página
       document.addEventListener('visibilitychange', () => {
         this.isPageVisible = !document.hidden;
         if (document.hidden) {
@@ -73,11 +79,9 @@ const AudioManager = {
         }
       });
 
-      // Desbloquear audio al primer clic/touch en la página
       const unlockAudio = () => {
         if (!this.isUnlocked) {
           this.isUnlocked = true;
-          // Si hay un play pendiente, reproducir ahora
           if (this.pendingPlay && this.activeSpeakers.size > 0) {
             this.audio.play().catch(() => {});
             this.fadeIn();
@@ -94,27 +98,15 @@ const AudioManager = {
 
   activate(speakerId) {
     if (!this.audio || !this.isPageVisible) return;
-
-    // Cancelar fade out y stop timeout
-    if (this.fadeInterval) {
-      clearInterval(this.fadeInterval);
-      this.fadeInterval = null;
-    }
-    if (this.stopTimeout) {
-      clearTimeout(this.stopTimeout);
-      this.stopTimeout = null;
-    }
+    if (this.fadeInterval) clearInterval(this.fadeInterval);
+    if (this.stopTimeout) clearTimeout(this.stopTimeout);
 
     this.activeSpeakers.add(speakerId);
 
-    // Si el audio está desbloqueado, reproducir
     if (this.isUnlocked) {
-      if (this.audio.paused) {
-        this.audio.play().catch(() => {});
-      }
+      if (this.audio.paused) this.audio.play().catch(() => {});
       this.fadeIn();
     } else {
-      // Marcar como pendiente - se reproducirá cuando el usuario haga clic
       this.pendingPlay = true;
     }
   },
@@ -122,30 +114,25 @@ const AudioManager = {
   deactivate(speakerId, delay = 5000) {
     this.stopTimeout = setTimeout(() => {
       this.activeSpeakers.delete(speakerId);
-
-      if (this.activeSpeakers.size === 0) {
-        this.fadeOut();
-      }
+      if (this.activeSpeakers.size === 0) this.fadeOut();
     }, delay);
   },
 
   fadeIn(duration = 600) {
     if (!this.audio) return;
-
     if (this.fadeInterval) clearInterval(this.fadeInterval);
 
     const steps = 15;
     const stepTime = duration / steps;
     const currentVol = this.audio.volume;
     const volumeStep = (this.targetVolume - currentVol) / steps;
-
     let step = 0;
+
     this.fadeInterval = setInterval(() => {
       step++;
       if (step >= steps) {
         this.audio.volume = this.targetVolume;
         clearInterval(this.fadeInterval);
-        this.fadeInterval = null;
       } else {
         this.audio.volume = Math.min(this.targetVolume, currentVol + volumeStep * step);
       }
@@ -154,15 +141,14 @@ const AudioManager = {
 
   fadeOut(duration = 1200) {
     if (!this.audio) return;
-
     if (this.fadeInterval) clearInterval(this.fadeInterval);
 
     const steps = 20;
     const stepTime = duration / steps;
     const startVol = this.audio.volume;
     const volumeStep = startVol / steps;
-
     let step = 0;
+
     this.fadeInterval = setInterval(() => {
       step++;
       if (step >= steps || this.audio.volume <= 0.01) {
@@ -170,7 +156,6 @@ const AudioManager = {
         this.audio.pause();
         this.audio.currentTime = 0;
         clearInterval(this.fadeInterval);
-        this.fadeInterval = null;
       } else {
         this.audio.volume = Math.max(0, startVol - volumeStep * step);
       }
@@ -179,9 +164,7 @@ const AudioManager = {
 
   pauseImmediately() {
     if (this.fadeInterval) clearInterval(this.fadeInterval);
-    if (this.audio && !this.audio.paused) {
-      this.audio.pause();
-    }
+    if (this.audio && !this.audio.paused) this.audio.pause();
   },
 
   resume() {
@@ -190,42 +173,32 @@ const AudioManager = {
       this.fadeIn();
     }
   },
-
-  forceStop() {
-    this.activeSpeakers.clear();
-    if (this.fadeInterval) clearInterval(this.fadeInterval);
-    if (this.stopTimeout) clearTimeout(this.stopTimeout);
-    if (this.audio) {
-      this.audio.volume = 0;
-      this.audio.pause();
-      this.audio.currentTime = 0;
-    }
-  }
 };
 
-// Componente para elementos interactivos
-const InteractiveElement = ({ element, style }) => {
+// ========================================
+// INTERACTIVE ELEMENT (estático, sin re-renders por parallax)
+// ========================================
+const InteractiveElement = memo(({ element, styleVars, isMobile }) => {
   const [isActive, setIsActive] = useState(false);
   const [shakeOffset, setShakeOffset] = useState({ x: 0, y: 0, scale: 1 });
   const shakeIntervalRef = useRef(null);
   const localStopTimeoutRef = useRef(null);
 
-  // Inicializar audio si el elemento lo tiene
   useEffect(() => {
     if (element.soundSrc) {
       AudioManager.init(element.soundSrc, element.volume || 0.5);
     }
   }, [element.soundSrc, element.volume]);
 
-  // Animación de vibración
   useEffect(() => {
     if (isActive && element.hoverEffect === 'shake') {
       const intensity = element.shakeIntensity || 3;
       shakeIntervalRef.current = setInterval(() => {
-        const x = (Math.random() - 0.5) * intensity;
-        const y = (Math.random() - 0.5) * (intensity * 0.5);
-        const scale = 1 + (Math.random() - 0.5) * 0.02;
-        setShakeOffset({ x, y, scale });
+        setShakeOffset({
+          x: (Math.random() - 0.5) * intensity,
+          y: (Math.random() - 0.5) * (intensity * 0.5),
+          scale: 1 + (Math.random() - 0.5) * 0.02,
+        });
       }, 60);
     } else {
       if (shakeIntervalRef.current) {
@@ -234,68 +207,57 @@ const InteractiveElement = ({ element, style }) => {
       }
       setShakeOffset({ x: 0, y: 0, scale: 1 });
     }
-
     return () => {
-      if (shakeIntervalRef.current) {
-        clearInterval(shakeIntervalRef.current);
-      }
+      if (shakeIntervalRef.current) clearInterval(shakeIntervalRef.current);
     };
   }, [isActive, element.hoverEffect, element.shakeIntensity]);
 
   const handleMouseEnter = () => {
     if (element.interactive) {
-      // Cancelar timeout de parada si existe
       if (localStopTimeoutRef.current) {
         clearTimeout(localStopTimeoutRef.current);
         localStopTimeoutRef.current = null;
       }
-
       setIsActive(true);
-
-      // Activar audio
-      if (element.soundSrc) {
-        AudioManager.activate(element.id);
-      }
+      if (element.soundSrc) AudioManager.activate(element.id);
     }
   };
 
   const handleMouseLeave = () => {
     if (element.interactive) {
       const delay = element.stopDelay !== undefined ? element.stopDelay : 5000;
-
       localStopTimeoutRef.current = setTimeout(() => {
         setIsActive(false);
-
-        // Desactivar audio
-        if (element.soundSrc) {
-          AudioManager.deactivate(element.id, 0); // El delay ya se aplicó arriba
-        }
+        if (element.soundSrc) AudioManager.deactivate(element.id, 0);
       }, delay);
     }
   };
 
-  // Hitbox con control individual por lado (en porcentaje)
-  // hitboxPadding: aplica a todos los lados si no se especifica individualmente
-  // hitboxTop, hitboxBottom, hitboxLeft, hitboxRight: override individual
   const defaultPadding = element.hitboxPadding || 0;
   const hitboxTop = element.hitboxTop !== undefined ? element.hitboxTop : defaultPadding;
   const hitboxBottom = element.hitboxBottom !== undefined ? element.hitboxBottom : defaultPadding;
   const hitboxLeft = element.hitboxLeft !== undefined ? element.hitboxLeft : defaultPadding;
   const hitboxRight = element.hitboxRight !== undefined ? element.hitboxRight : defaultPadding;
 
-  // Combinar transform del parallax (del style) con el del shake
-  const baseTransform = style.transform || '';
-  const shakeTransform = `translate(${shakeOffset.x}px, ${shakeOffset.y}px) scale(${shakeOffset.scale})`;
+  // Usar CSS calc() con variables para el parallax de profundidad
+  const depthTransform = styleVars.depthFactor !== 0
+    ? `calc(var(--parallax-x) * ${styleVars.depthOffset}px)`
+    : '0px';
 
   const containerStyle = {
-    ...style,
-    transform: baseTransform ? `${baseTransform} ${shakeTransform}` : shakeTransform,
+    position: 'absolute',
+    left: `${styleVars.leftPercent}%`,
+    top: `${styleVars.topPercent}%`,
+    width: `${styleVars.widthPercent}%`,
+    height: styleVars.heightPercent === 'auto' ? 'auto' : `${styleVars.heightPercent}%`,
+    zIndex: styleVars.zIndex,
+    opacity: styleVars.opacity,
+    transform: `translate3d(${depthTransform}, 0, 0) translate(${shakeOffset.x}px, ${shakeOffset.y}px) scale(${shakeOffset.scale})`,
     pointerEvents: 'none',
     willChange: 'transform',
     backfaceVisibility: 'hidden',
   };
 
-  // El hitbox es un div que recibe los eventos del mouse
   const hitboxStyle = {
     position: 'absolute',
     top: `${hitboxTop}%`,
@@ -304,22 +266,20 @@ const InteractiveElement = ({ element, style }) => {
     bottom: `${hitboxBottom}%`,
     cursor: element.interactive ? 'pointer' : 'default',
     pointerEvents: element.interactive ? 'auto' : 'none',
-    boxSizing: 'border-box',
   };
 
   return (
     <div style={containerStyle}>
-      {/* Contenido visual - componentes estables que no se re-renderizan */}
       {element.lottieData ? (
         <StableLottie
           animationData={element.lottieData}
           loop={element.loop !== false}
+          isMobile={isMobile}
         />
       ) : element.imageSrc ? (
         <StableImage src={element.imageSrc} />
       ) : null}
 
-      {/* Hitbox invisible */}
       {element.interactive && (
         <div
           style={hitboxStyle}
@@ -329,83 +289,83 @@ const InteractiveElement = ({ element, style }) => {
       )}
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+  // Solo re-renderizar si cambian las props esenciales
+  return prevProps.element === nextProps.element &&
+         prevProps.isMobile === nextProps.isMobile &&
+         prevProps.styleVars.leftPercent === nextProps.styleVars.leftPercent &&
+         prevProps.styleVars.topPercent === nextProps.styleVars.topPercent;
+});
 
+// ========================================
+// BACKGROUND GROUP (componente principal)
+// ========================================
 const BackgroundGroup = ({
   backgroundSrc,
   backgroundWidth,
   backgroundHeight,
-  elements = [], // Array de { id, lottieData, x, y, width, height, zIndex, mobileX, mobileY, mobileWidth }
+  elements = [],
   zIndex = 1,
   invertX = true,
-  viewportHeight: vpHeightProp = null, // Altura real del viewport desde Hero
+  viewportHeight: vpHeightProp = null,
 }) => {
-  const mousePosition = useParallaxContext();
-  const [maxOffset, setMaxOffset] = useState(0);
-  const [imageStyle, setImageStyle] = useState({ height: '100vh', width: 'auto' });
-  const [isMobile, setIsMobile] = useState(false);
+  const [dimensions, setDimensions] = useState({
+    maxOffset: 0,
+    imageStyle: { height: '100vh', width: 'auto' },
+    isMobile: false,
+  });
 
   useEffect(() => {
     if (!backgroundWidth || !backgroundHeight) return;
 
     const calculateDimensions = () => {
       const viewportWidth = window.innerWidth;
-      // Usar la altura pasada como prop o window.innerHeight
       const viewportHeight = vpHeightProp ? parseInt(vpHeightProp) : window.innerHeight;
       const imageAspectRatio = backgroundWidth / backgroundHeight;
       const isMobile = viewportWidth < MOBILE_BREAKPOINT;
 
-      let finalWidth;
-      let finalHeight;
+      let finalWidth, finalHeight;
 
       if (isMobile) {
-        // MÓVIL: Primero asegurar que cubra el alto del viewport
-        // Luego agregar ancho extra para permitir el drag horizontal
-
-        // Paso 1: Calcular tamaño para cubrir el alto
         finalHeight = viewportHeight;
         finalWidth = viewportHeight * imageAspectRatio;
 
-        // Paso 2: Verificar si necesitamos más ancho para el drag
         const minWidthForDrag = viewportWidth * ZOOM_FACTOR_MOBILE;
         if (finalWidth < minWidthForDrag) {
-          // Escalar proporcionalmente para tener suficiente ancho
           const scale = minWidthForDrag / finalWidth;
           finalWidth = minWidthForDrag;
           finalHeight = finalHeight * scale;
         }
 
-        setImageStyle({
-          width: `${finalWidth}px`,
-          height: `${finalHeight}px`,
-          maxWidth: 'none',
-          objectFit: 'cover',
+        setDimensions({
+          maxOffset: Math.max(0, (finalWidth - viewportWidth) / 2 - 2),
+          imageStyle: {
+            width: `${finalWidth}px`,
+            height: `${finalHeight}px`,
+            maxWidth: 'none',
+            objectFit: 'cover',
+          },
+          isMobile: true,
         });
       } else {
-        // DESKTOP: Lógica original
         const potentialWidth = viewportHeight * imageAspectRatio;
 
         if (potentialWidth < viewportWidth * ZOOM_FACTOR_DESKTOP) {
           finalWidth = viewportWidth * ZOOM_FACTOR_DESKTOP;
-          setImageStyle({
-            width: `${finalWidth}px`,
-            height: 'auto',
-            maxWidth: 'none',
+          setDimensions({
+            maxOffset: Math.max(0, (finalWidth - viewportWidth) / 2 - 2),
+            imageStyle: { width: `${finalWidth}px`, height: 'auto', maxWidth: 'none' },
+            isMobile: false,
           });
         } else {
           finalWidth = potentialWidth;
-          setImageStyle({
-            height: `${viewportHeight}px`,
-            width: 'auto',
-            maxWidth: 'none',
+          setDimensions({
+            maxOffset: Math.max(0, (finalWidth - viewportWidth) / 2 - 2),
+            imageStyle: { height: `${viewportHeight}px`, width: 'auto', maxWidth: 'none' },
+            isMobile: false,
           });
         }
       }
-
-      const extraWidth = finalWidth - viewportWidth;
-      const newMaxOffset = Math.max(0, (extraWidth / 2) - 2);
-      setMaxOffset(newMaxOffset);
-      setIsMobile(isMobile);
     };
 
     calculateDimensions();
@@ -413,72 +373,61 @@ const BackgroundGroup = ({
     return () => window.removeEventListener('resize', calculateDimensions);
   }, [backgroundWidth, backgroundHeight, vpHeightProp]);
 
-  // Calcular transformación parallax
+  const { maxOffset, imageStyle, isMobile } = dimensions;
   const xMult = invertX ? -1 : 1;
-  const translateX = mousePosition.x * maxOffset * xMult;
 
+  // Usar CSS calc() para el parallax - NO React state
   const containerStyle = {
     position: 'absolute',
     top: '50%',
     left: '50%',
-    transform: `translate(-50%, -50%) translate3d(${translateX}px, 0, 0)`,
+    transform: `translate(-50%, -50%) translate3d(calc(var(--parallax-x) * ${maxOffset * xMult}px), 0, 0)`,
     zIndex,
+    willChange: 'transform',
   };
 
-  const wrapperStyle = {
-    position: 'relative',
-    display: 'inline-block',
-  };
-
-  // Estilo para elementos posicionados sobre la imagen
-  // x, y, width, height están en píxeles de la imagen original
-  // mobileX, mobileY, mobileWidth: override para móvil (opcional)
-  // depth: 1 = se mueve igual que el fondo, <1 = se mueve menos (más cerca de cámara)
-  const getElementStyle = (element) => {
-    // Usar posiciones móviles si existen y estamos en móvil
+  // Pre-calcular estilos de elementos (solo cuando cambian las dimensiones)
+  const getElementStyleVars = (element) => {
     const x = isMobile && element.mobileX !== undefined ? element.mobileX : element.x;
     const y = isMobile && element.mobileY !== undefined ? element.mobileY : element.y;
     const width = isMobile && element.mobileWidth !== undefined ? element.mobileWidth : element.width;
 
-    // Convertir posición de píxeles a porcentaje de la imagen
     const leftPercent = (x / backgroundWidth) * 100;
     const topPercent = (y / backgroundHeight) * 100;
     const widthPercent = (width / backgroundWidth) * 100;
     const heightPercent = element.height ? (element.height / backgroundHeight) * 100 : 'auto';
 
-    // Calcular offset de parallax individual si el elemento tiene depth diferente
-    // En móvil: todos tienen depth=1 excepto 'tableleft'
+    // Calcular depth offset
     let elementDepth = element.depth !== undefined ? element.depth : 1;
     if (isMobile && element.id !== 'tableleft') {
-      elementDepth = 1; // Sin parallax individual en móvil
+      elementDepth = 1;
     }
-    const depthDiff = 1 - elementDepth; // Cuánto menos se mueve respecto al fondo
-    const elementOffsetX = translateX * depthDiff * -1; // Compensar para que se mueva menos
+    const depthFactor = 1 - elementDepth;
+    const depthOffset = maxOffset * xMult * depthFactor * -1;
 
     return {
-      position: 'absolute',
-      left: `${leftPercent}%`,
-      top: `${topPercent}%`,
-      width: `${widthPercent}%`,
-      height: heightPercent === 'auto' ? 'auto' : `${heightPercent}%`,
+      leftPercent,
+      topPercent,
+      widthPercent,
+      heightPercent,
       zIndex: element.zIndex || 1,
       opacity: element.opacity !== undefined ? element.opacity : 1,
-      transform: elementDepth !== 1 ? `translate3d(${elementOffsetX}px, 0, 0)` : undefined,
+      depthFactor,
+      depthOffset,
     };
   };
 
   return (
     <div style={containerStyle}>
-      <div style={wrapperStyle}>
-        {/* Imagen de fondo */}
+      <div style={{ position: 'relative', display: 'inline-block' }}>
         <img src={backgroundSrc} alt="" style={{ ...imageStyle, display: 'block' }} />
 
-        {/* Elementos posicionados sobre la imagen (Lotties o PNGs) */}
         {elements.map((element) => (
           <InteractiveElement
             key={element.id}
             element={element}
-            style={getElementStyle(element)}
+            styleVars={getElementStyleVars(element)}
+            isMobile={isMobile}
           />
         ))}
       </div>

@@ -1,4 +1,7 @@
-import { useParallaxContext } from '../ParallaxContainer';
+/**
+ * ParallaxLayer - Componente de capa con parallax basado en CSS variables
+ * NO causa re-renders porque usa CSS calc() con --parallax-x y --parallax-y
+ */
 
 const ParallaxLayer = ({
   children,
@@ -8,17 +11,15 @@ const ParallaxLayer = ({
   invertY = false,
   maxOffset = 50,
   zIndex = 0,
-  onlyHorizontal = false, // Solo movimiento horizontal
+  onlyHorizontal = false,
   style = {},
 }) => {
-  const mousePosition = useParallaxContext();
-
   const xMult = invertX ? -1 : 1;
   const yMult = invertY ? -1 : 1;
 
-  const translateX = mousePosition.x * depth * maxOffset * xMult;
-  // Si onlyHorizontal, no hay movimiento vertical
-  const translateY = onlyHorizontal ? 0 : mousePosition.y * depth * maxOffset * yMult;
+  // Usar CSS calc() con variables - NO React state
+  const translateX = `calc(var(--parallax-x, 0) * ${depth * maxOffset * xMult}px)`;
+  const translateY = onlyHorizontal ? '0px' : `calc(var(--parallax-y, 0) * ${depth * maxOffset * yMult}px)`;
 
   const positionStyles = {
     center: { top: '50%', left: '50%' },
@@ -42,7 +43,7 @@ const ParallaxLayer = ({
     baseTransform = 'translateY(-50%)';
   }
 
-  const parallaxTransform = `translate3d(${translateX}px, ${translateY}px, 0)`;
+  const parallaxTransform = `translate3d(${translateX}, ${translateY}, 0)`;
   const finalTransform = baseTransform
     ? `${baseTransform} ${parallaxTransform}`
     : parallaxTransform;
@@ -52,6 +53,7 @@ const ParallaxLayer = ({
     ...positionStyles[position],
     transform: finalTransform,
     zIndex,
+    willChange: 'transform',
     ...style,
   };
 
