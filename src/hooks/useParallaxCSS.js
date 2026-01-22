@@ -12,9 +12,10 @@ import { useEffect, useRef, useCallback } from 'react';
 const useParallaxCSS = (containerRef, options = {}) => {
   const {
     sensitivity = 1,
-    smoothing = 0.08,
-    friction = 0.92,
-    maxVelocity = 0.08,
+    smoothing = 0.12,        // Suavizado general
+    touchSmoothing = 0.18,   // Más responsivo para touch
+    friction = 0.94,         // Inercia más suave
+    maxVelocity = 0.06,      // Velocidad máxima más controlada
     bounds = { min: -1, max: 1 },
     onlyHorizontal = true,
   } = options;
@@ -143,8 +144,10 @@ const useParallaxCSS = (containerRef, options = {}) => {
       }
 
       // Interpolación suave hacia el target
-      currentPos.current.x = lerp(currentPos.current.x, targetPos.current.x, smoothing);
-      currentPos.current.y = lerp(currentPos.current.y, targetPos.current.y, smoothing);
+      // Usar smoothing diferente para touch (más responsivo)
+      const activeSmoothing = isTouchDevice.current ? touchSmoothing : smoothing;
+      currentPos.current.x = lerp(currentPos.current.x, targetPos.current.x, activeSmoothing);
+      currentPos.current.y = lerp(currentPos.current.y, targetPos.current.y, activeSmoothing);
 
       // Actualizar CSS (NO React state)
       updateCSSProperties();
@@ -176,7 +179,7 @@ const useParallaxCSS = (containerRef, options = {}) => {
       window.removeEventListener('touchcancel', handleTouchEnd);
     };
   }, [
-    bounds, friction, smoothing,
+    bounds, friction, smoothing, touchSmoothing,
     handleMouseMove, handleTouchStart, handleTouchMove, handleTouchEnd,
     updateCSSProperties
   ]);
