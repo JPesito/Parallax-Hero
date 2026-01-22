@@ -10,7 +10,7 @@ import lightFilter from './assets/images/Light filter.png';
 import filterOverlay from './assets/images/Filter.png';
 import robot1 from './assets/images/Robot 1.png';
 import robot2 from './assets/images/Robot 2.png';
-import tablelittle from './assets/images/Table little.png';
+import tablelittle from './assets/images/Tablelittle.png';
 
 // ============================================
 // SONIDOS
