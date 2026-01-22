@@ -1,9 +1,46 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import Lottie from 'lottie-react';
 import { useParallaxContext } from '../ParallaxContainer';
 
-// Factor de seguridad: la imagen será al menos este % más ancha que la pantalla
-const ZOOM_FACTOR_SEGURIDAD = 1.10;
+// Componente Lottie que NUNCA se re-renderiza (solo se monta una vez)
+const StableLottie = memo(({ animationData, loop }) => {
+  return (
+    <Lottie
+      animationData={animationData}
+      loop={loop}
+      autoplay={true}
+      style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
+    />
+  );
+}, (prevProps, nextProps) => {
+  // Solo re-renderizar si cambia el animationData (nunca debería cambiar)
+  return prevProps.animationData === nextProps.animationData;
+});
+
+// Componente imagen que NUNCA se re-renderiza
+const StableImage = memo(({ src }) => {
+  return (
+    <img
+      src={src}
+      alt=""
+      style={{
+        width: '100%',
+        height: '100%',
+        objectFit: 'contain',
+        pointerEvents: 'none',
+      }}
+    />
+  );
+}, (prevProps, nextProps) => {
+  return prevProps.src === nextProps.src;
+});
+
+// Factor de seguridad para desktop: la imagen será al menos este % más ancha que la pantalla
+const ZOOM_FACTOR_DESKTOP = 1.10;
+// Factor para móvil: necesitamos más espacio lateral para el drag
+const ZOOM_FACTOR_MOBILE = 1.8;
+// Breakpoint para considerar móvil (portrait)
+const MOBILE_BREAKPOINT = 768;
 
 // ========================================
 // AUDIO MANAGER - Manejo centralizado del audio
@@ -254,6 +291,8 @@ const InteractiveElement = ({ element, style }) => {
     ...style,
     transform: baseTransform ? `${baseTransform} ${shakeTransform}` : shakeTransform,
     pointerEvents: 'none',
+    willChange: 'transform',
+    backfaceVisibility: 'hidden',
   };
 
   // El hitbox es un div que recibe los eventos del mouse
@@ -270,28 +309,17 @@ const InteractiveElement = ({ element, style }) => {
 
   return (
     <div style={containerStyle}>
-      {/* Contenido visual */}
+      {/* Contenido visual - componentes estables que no se re-renderizan */}
       {element.lottieData ? (
-        <Lottie
+        <StableLottie
           animationData={element.lottieData}
           loop={element.loop !== false}
-          autoplay={true}
-          style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
         />
       ) : element.imageSrc ? (
-        <img
-          src={element.imageSrc}
-          alt=""
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain',
-            pointerEvents: 'none',
-          }}
-        />
+        <StableImage src={element.imageSrc} />
       ) : null}
 
-      {/* Hitbox invisible (con borde debug) */}
+      {/* Hitbox invisible */}
       {element.interactive && (
         <div
           style={hitboxStyle}
@@ -307,56 +335,87 @@ const BackgroundGroup = ({
   backgroundSrc,
   backgroundWidth,
   backgroundHeight,
-  elements = [], // Array de { id, lottieData, x, y, width, height, zIndex }
+  elements = [], // Array de { id, lottieData, x, y, width, height, zIndex, mobileX, mobileY, mobileWidth }
   zIndex = 1,
   invertX = true,
+  viewportHeight: vpHeightProp = null, // Altura real del viewport desde Hero
 }) => {
   const mousePosition = useParallaxContext();
   const [maxOffset, setMaxOffset] = useState(0);
   const [imageStyle, setImageStyle] = useState({ height: '100vh', width: 'auto' });
-  const containerRef = useRef(null);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     if (!backgroundWidth || !backgroundHeight) return;
 
     const calculateDimensions = () => {
       const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
+      // Usar la altura pasada como prop o window.innerHeight
+      const viewportHeight = vpHeightProp ? parseInt(vpHeightProp) : window.innerHeight;
       const imageAspectRatio = backgroundWidth / backgroundHeight;
-      const potentialWidth = viewportHeight * imageAspectRatio;
+      const isMobile = viewportWidth < MOBILE_BREAKPOINT;
 
       let finalWidth;
+      let finalHeight;
 
-      if (potentialWidth < viewportWidth * ZOOM_FACTOR_SEGURIDAD) {
-        // NO ES SUFICIENTE: Forzar ancho para que sobre espacio lateral
-        finalWidth = viewportWidth * ZOOM_FACTOR_SEGURIDAD;
+      if (isMobile) {
+        // MÓVIL: Primero asegurar que cubra el alto del viewport
+        // Luego agregar ancho extra para permitir el drag horizontal
+
+        // Paso 1: Calcular tamaño para cubrir el alto
+        finalHeight = viewportHeight;
+        finalWidth = viewportHeight * imageAspectRatio;
+
+        // Paso 2: Verificar si necesitamos más ancho para el drag
+        const minWidthForDrag = viewportWidth * ZOOM_FACTOR_MOBILE;
+        if (finalWidth < minWidthForDrag) {
+          // Escalar proporcionalmente para tener suficiente ancho
+          const scale = minWidthForDrag / finalWidth;
+          finalWidth = minWidthForDrag;
+          finalHeight = finalHeight * scale;
+        }
+
         setImageStyle({
           width: `${finalWidth}px`,
-          height: 'auto',
+          height: `${finalHeight}px`,
           maxWidth: 'none',
+          objectFit: 'cover',
         });
       } else {
-        // SÍ ES SUFICIENTE: Ajustar altura al 100vh
-        finalWidth = potentialWidth;
-        setImageStyle({
-          height: '100vh',
-          width: 'auto',
-          maxWidth: 'none',
-        });
+        // DESKTOP: Lógica original
+        const potentialWidth = viewportHeight * imageAspectRatio;
+
+        if (potentialWidth < viewportWidth * ZOOM_FACTOR_DESKTOP) {
+          finalWidth = viewportWidth * ZOOM_FACTOR_DESKTOP;
+          setImageStyle({
+            width: `${finalWidth}px`,
+            height: 'auto',
+            maxWidth: 'none',
+          });
+        } else {
+          finalWidth = potentialWidth;
+          setImageStyle({
+            height: `${viewportHeight}px`,
+            width: 'auto',
+            maxWidth: 'none',
+          });
+        }
       }
 
       const extraWidth = finalWidth - viewportWidth;
-      setMaxOffset(Math.max(0, (extraWidth / 2) - 2));
+      const newMaxOffset = Math.max(0, (extraWidth / 2) - 2);
+      setMaxOffset(newMaxOffset);
+      setIsMobile(isMobile);
     };
 
     calculateDimensions();
     window.addEventListener('resize', calculateDimensions);
     return () => window.removeEventListener('resize', calculateDimensions);
-  }, [backgroundWidth, backgroundHeight]);
+  }, [backgroundWidth, backgroundHeight, vpHeightProp]);
 
   // Calcular transformación parallax
   const xMult = invertX ? -1 : 1;
-  const translateX = mousePosition.x * 1 * maxOffset * xMult;
+  const translateX = mousePosition.x * maxOffset * xMult;
 
   const containerStyle = {
     position: 'absolute',
@@ -373,16 +432,26 @@ const BackgroundGroup = ({
 
   // Estilo para elementos posicionados sobre la imagen
   // x, y, width, height están en píxeles de la imagen original
+  // mobileX, mobileY, mobileWidth: override para móvil (opcional)
   // depth: 1 = se mueve igual que el fondo, <1 = se mueve menos (más cerca de cámara)
   const getElementStyle = (element) => {
+    // Usar posiciones móviles si existen y estamos en móvil
+    const x = isMobile && element.mobileX !== undefined ? element.mobileX : element.x;
+    const y = isMobile && element.mobileY !== undefined ? element.mobileY : element.y;
+    const width = isMobile && element.mobileWidth !== undefined ? element.mobileWidth : element.width;
+
     // Convertir posición de píxeles a porcentaje de la imagen
-    const leftPercent = (element.x / backgroundWidth) * 100;
-    const topPercent = (element.y / backgroundHeight) * 100;
-    const widthPercent = (element.width / backgroundWidth) * 100;
+    const leftPercent = (x / backgroundWidth) * 100;
+    const topPercent = (y / backgroundHeight) * 100;
+    const widthPercent = (width / backgroundWidth) * 100;
     const heightPercent = element.height ? (element.height / backgroundHeight) * 100 : 'auto';
 
     // Calcular offset de parallax individual si el elemento tiene depth diferente
-    const elementDepth = element.depth !== undefined ? element.depth : 1;
+    // En móvil: todos tienen depth=1 excepto 'tableleft'
+    let elementDepth = element.depth !== undefined ? element.depth : 1;
+    if (isMobile && element.id !== 'tableleft') {
+      elementDepth = 1; // Sin parallax individual en móvil
+    }
     const depthDiff = 1 - elementDepth; // Cuánto menos se mueve respecto al fondo
     const elementOffsetX = translateX * depthDiff * -1; // Compensar para que se mueva menos
 

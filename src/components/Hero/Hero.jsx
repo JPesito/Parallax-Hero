@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import ParallaxContainer from '../ParallaxContainer';
 import LottieLayer from '../LottieLayer';
 import BackgroundGroup from '../BackgroundGroup';
@@ -22,10 +23,29 @@ const Hero = ({
   showPlaceholders = false,
   customContent = null,
 }) => {
+  // Calcular altura real del viewport (fix para Safari móvil)
+  const [viewportHeight, setViewportHeight] = useState('100vh');
+
+  useEffect(() => {
+    const updateHeight = () => {
+      // Usar window.innerHeight que es el viewport real visible
+      setViewportHeight(`${window.innerHeight}px`);
+    };
+
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    window.addEventListener('orientationchange', updateHeight);
+
+    return () => {
+      window.removeEventListener('resize', updateHeight);
+      window.removeEventListener('orientationchange', updateHeight);
+    };
+  }, []);
+
   const containerStyle = {
     position: 'relative',
     width: '100%',
-    height: '100vh',
+    height: viewportHeight,
     overflow: 'hidden',
     background: backgroundColor,
   };
@@ -120,6 +140,7 @@ const Hero = ({
             elements={backgroundGroup.elements}
             zIndex={1}
             invertX={true}
+            viewportHeight={viewportHeight}
           />
         )}
 

@@ -61,7 +61,7 @@ const backgroundGroup = {
     { id: 'lights', lottieData: lights, x: 210, y: -90, width: 1600, zIndex: 5 },
     { id: 'arm1', lottieData: arm1, x: 280, y: 185, width: 450, zIndex: 2, depth: 0.95 },
     { id: 'arm2', lottieData: arm2, x: 655, y: 160, width: 350, zIndex: 2, depth: 0.95 },
-    { id: 'tableleft', lottieData: tableleft, x: -40, y: 538, width: 560, zIndex: 4, depth: 0.3 },
+    { id: 'tableleft', lottieData: tableleft, x: -40, y: 538, width: 560, zIndex: 4, depth: 0.3, mobileX: 300 },
     { id: 'test', lottieData: test, x: 1205, y: 535, width: 600, zIndex: 5, depth: 0.95 },
     // Filtros PNG
     { id: 'lightFilter1', imageSrc: lightFilter, opacity: 0.1, x: 30, y: 20, width: 800, zIndex: 6 },

@@ -219,3 +219,14 @@ button {
     transform: none !important;
   }
 }
+
+/* Parallax container en dispositivos táctiles */
+@media (pointer: coarse) {
+  .parallax-touch-container {
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+}

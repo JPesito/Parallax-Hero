@@ -1,5 +1,5 @@
 import { ParallaxContext } from './ParallaxContext';
-import useMouseParallax from '../../hooks/useMouseParallax';
+import useParallaxInput from '../../hooks/useParallaxInput';
 import styles from './ParallaxContainer.module.css';
 
 const ParallaxContainer = ({
@@ -7,10 +7,11 @@ const ParallaxContainer = ({
   className = '',
   sensitivity = 1,
   smoothing = 0.1,
+  friction = 0.95,
   style = {},
   ...props
 }) => {
-  const { position } = useMouseParallax({ sensitivity, smoothing });
+  const { position } = useParallaxInput({ sensitivity, smoothing, friction });
 
   return (
     <ParallaxContext.Provider value={position}>
