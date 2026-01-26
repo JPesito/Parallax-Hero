@@ -2,18 +2,47 @@ import { useState, useEffect, useRef } from 'react';
 import Lottie from 'lottie-react';
 import ParallaxLayer from '../ParallaxLayer';
 
-// Factor de seguridad: la imagen será al menos este % más ancha que la pantalla
 const ZOOM_FACTOR_SEGURIDAD = 1.10;
+
+const useIsMobile = (breakpoint = 768) => {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
+    const coarse = window.matchMedia('(pointer: coarse)');
+
+    const compute = () => {
+      const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      setIsMobile(mq.matches && (coarse.matches || hasTouch));
+    };
+
+    compute();
+    mq.addEventListener('change', compute);
+    coarse.addEventListener('change', compute);
+
+    return () => {
+      mq.removeEventListener('change', compute);
+      coarse.removeEventListener('change', compute);
+    };
+  }, [breakpoint]);
+
+  return isMobile;
+};
 
 const LottieLayer = ({
   animationData,
   imageSrc,
   imageAlt = '',
-  // Dimensiones de la imagen para calcular maxOffset automático
   imageWidth = null,
   imageHeight = null,
   loop = true,
   autoplay = true,
+
+  // NUEVO: velocidad
+  speed = 1,
+  mobileSpeedMultiplier = 0.85,   // “un poquito más lento”
+  mobileDepthMultiplier = 0.85,   // opcional: parallax un poco menor SOLO en Lottie
+
   size = 'md',
   width = null,
   height = null,
@@ -30,7 +59,22 @@ const LottieLayer = ({
 }) => {
   const [calculatedMaxOffset, setCalculatedMaxOffset] = useState(maxOffset);
   const [imageDimensions, setImageDimensions] = useState({ width: 'auto', height: '100vh' });
-  const imgRef = useRef(null);
+
+  const isMobile = useIsMobile(768);
+  const lottieRef = useRef(null);
+
+  // Ajuste de velocidad SOLO móvil
+  const effectiveLottieSpeed = isMobile ? speed * mobileSpeedMultiplier : speed;
+
+  useEffect(() => {
+    if (!animationData) return;
+    const api = lottieRef.current;
+    if (api && typeof api.setSpeed === 'function') {
+      try {
+        api.setSpeed(effectiveLottieSpeed);
+      } catch {}
+    }
+  }, [animationData, effectiveLottieSpeed]);
 
   // Calcular dimensiones y maxOffset dinámicamente para size='cover'
   useEffect(() => {
@@ -39,46 +83,28 @@ const LottieLayer = ({
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
 
-        // Aspect ratio de la imagen
         const imageAspectRatio = imageWidth / imageHeight;
-
-        // Calcular qué ancho tendría la imagen si la altura fuera 100vh
         const potentialWidth = viewportHeight * imageAspectRatio;
 
         let finalWidth, finalHeight;
 
-        // ¿Ese ancho es suficiente para moverse?
         if (potentialWidth < viewportWidth * ZOOM_FACTOR_SEGURIDAD) {
-          // NO ES SUFICIENTE: Forzamos el ancho para que sobre espacio lateral
-          // Esto hace zoom in en la imagen
           finalWidth = viewportWidth * ZOOM_FACTOR_SEGURIDAD;
           finalHeight = finalWidth / imageAspectRatio;
-          setImageDimensions({
-            width: `${finalWidth}px`,
-            height: 'auto'
-          });
+          setImageDimensions({ width: `${finalWidth}px`, height: 'auto' });
         } else {
-          // SÍ ES SUFICIENTE: Ajustamos altura al 100vh
           finalWidth = potentialWidth;
           finalHeight = viewportHeight;
-          setImageDimensions({
-            width: 'auto',
-            height: '100vh'
-          });
+          setImageDimensions({ width: 'auto', height: '100vh' });
         }
 
-        // Calcular maxOffset basado en el ancho final
-        // El espacio sobrante total es (AnchoImagen - AnchoPantalla)
-        // Dividimos por 2 porque queremos movernos desde el centro
         const extraWidth = finalWidth - viewportWidth;
         const safeMaxOffset = Math.max(0, (extraWidth / 2) - 2);
-
         setCalculatedMaxOffset(safeMaxOffset);
       };
 
       calculateDimensions();
       window.addEventListener('resize', calculateDimensions);
-
       return () => window.removeEventListener('resize', calculateDimensions);
     } else {
       setCalculatedMaxOffset(maxOffset);
@@ -149,6 +175,7 @@ const LottieLayer = ({
     if (animationData) {
       return (
         <Lottie
+          lottieRef={lottieRef}
           animationData={animationData}
           loop={loop}
           autoplay={autoplay}
@@ -164,9 +191,12 @@ const LottieLayer = ({
     return <div style={placeholderStyle}>Lottie/IMG</div>;
   };
 
+  // Opcional: SOLO si es Lottie, que el parallax sea un poco menos agresivo en móvil
+  const effectiveDepth = isMobile && animationData ? depth * mobileDepthMultiplier : depth;
+
   return (
     <ParallaxLayer
-      depth={depth}
+      depth={effectiveDepth}
       position={coverPosition}
       invertX={invertX}
       invertY={invertY}
@@ -174,9 +204,7 @@ const LottieLayer = ({
       zIndex={zIndex}
       onlyHorizontal={onlyHorizontal}
     >
-      <div style={wrapperStyle}>
-        {renderContent()}
-      </div>
+      <div style={wrapperStyle}>{renderContent()}</div>
     </ParallaxLayer>
   );
 };

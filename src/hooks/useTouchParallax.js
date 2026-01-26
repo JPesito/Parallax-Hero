@@ -8,16 +8,27 @@ const useTouchParallax = (options = {}) => {
     maxVelocity = 0.08,
     bounds = { min: -1, max: 1 },
     onlyHorizontal = true,
+
+    // NUEVO:
+    // "smooth" = como lo tienes hoy (lerp + inercia)
+    // "dry"   = en seco (sin lerp + sin inercia)
+    mode = 'smooth',
+
+    // setState throttling (si quieres más “fino”, baja a 16)
+    updateInterval = 32,
   } = options;
 
   const [position, setPosition] = useState({ x: 0, y: 0 });
+
   const isDragging = useRef(false);
   const startPosition = useRef({ x: 0, y: 0 });
   const startTouch = useRef({ x: 0, y: 0 });
   const lastTouch = useRef({ x: 0, y: 0 });
+
   const velocity = useRef({ x: 0, y: 0 });
   const targetPos = useRef({ x: 0, y: 0 });
   const currentPos = useRef({ x: 0, y: 0 });
+
   const lastTime = useRef(0);
   const animationId = useRef(null);
   const lastUpdateTime = useRef(0);
@@ -35,10 +46,13 @@ const useTouchParallax = (options = {}) => {
   const handleTouchStart = useCallback((e) => {
     const touch = e.touches[0];
     isDragging.current = true;
+
     startTouch.current = { x: touch.clientX, y: touch.clientY };
     lastTouch.current = { x: touch.clientX, y: touch.clientY };
+
     startPosition.current = { ...targetPos.current };
     velocity.current = { x: 0, y: 0 };
+
     lastTime.current = performance.now();
   }, []);
 
@@ -58,10 +72,32 @@ const useTouchParallax = (options = {}) => {
 
     const newX = clamp(startPosition.current.x + normalizedDeltaX, bounds.min, bounds.max);
     const newY = clamp(startPosition.current.y + normalizedDeltaY, bounds.min, bounds.max);
+
     targetPos.current = { x: newX, y: newY };
 
+    // ===== MODO "DRY" (EN SECO) =====
+    if (mode === 'dry') {
+      // Nada de inercia, nada de lerp: posición directa
+      currentPos.current.x = newX;
+      currentPos.current.y = newY;
+      velocity.current = { x: 0, y: 0 };
+
+      const interval = updateInterval === 32 ? 16 : updateInterval; // recomendado en dry
+      if (now - lastUpdateTime.current >= interval) {
+        setPosition({ x: newX, y: newY });
+        lastUpdateTime.current = now;
+      }
+
+      lastTime.current = now;
+      lastTouch.current = { x: touch.clientX, y: touch.clientY };
+      return;
+    }
+    // ===============================
+
+    // ===== MODO SMOOTH (como estabas) =====
     const instantDeltaX = touch.clientX - lastTouch.current.x;
     const instantDeltaY = touch.clientY - lastTouch.current.y;
+
     const rawVelX = -pixelsToNormalized(instantDeltaX, window.innerWidth) / deltaTime * 16;
     const rawVelY = onlyHorizontal ? 0 : -pixelsToNormalized(instantDeltaY, window.innerHeight) / deltaTime * 16;
 
@@ -72,21 +108,28 @@ const useTouchParallax = (options = {}) => {
 
     lastTouch.current = { x: touch.clientX, y: touch.clientY };
     lastTime.current = now;
-  }, [bounds, onlyHorizontal, pixelsToNormalized, maxVelocity]);
+  }, [bounds, onlyHorizontal, pixelsToNormalized, maxVelocity, mode, updateInterval]);
 
   const handleTouchEnd = useCallback(() => {
     isDragging.current = false;
-  }, []);
 
-  // Animation loop con throttle de setState
+    // En seco: cortar en 0 (sin frenado)
+    if (mode === 'dry') {
+      velocity.current = { x: 0, y: 0 };
+    }
+  }, [mode]);
+
+  // Animation loop SOLO para mode="smooth"
   useEffect(() => {
+    if (mode === 'dry') return;
+
     let running = true;
-    const UPDATE_INTERVAL = 32; // ~30fps para setState (suficiente para UI suave)
+    const UPDATE_INTERVAL = updateInterval; // ~30fps por defecto
 
     const animate = () => {
       if (!running) return;
 
-      // Aplicar inercia si no está arrastrando
+      // Inercia cuando sueltas (solo smooth)
       if (!isDragging.current) {
         const vx = velocity.current.x;
         const vy = velocity.current.y;
@@ -105,17 +148,13 @@ const useTouchParallax = (options = {}) => {
         }
       }
 
-      // Interpolación suave hacia el target
+      // Lerping suave (solo smooth)
       currentPos.current.x = lerp(currentPos.current.x, targetPos.current.x, smoothing);
       currentPos.current.y = lerp(currentPos.current.y, targetPos.current.y, smoothing);
 
-      // Throttle setState para reducir re-renders
       const now = performance.now();
       if (now - lastUpdateTime.current >= UPDATE_INTERVAL) {
-        setPosition({
-          x: currentPos.current.x,
-          y: currentPos.current.y,
-        });
+        setPosition({ x: currentPos.current.x, y: currentPos.current.y });
         lastUpdateTime.current = now;
       }
 
@@ -126,11 +165,9 @@ const useTouchParallax = (options = {}) => {
 
     return () => {
       running = false;
-      if (animationId.current) {
-        cancelAnimationFrame(animationId.current);
-      }
+      if (animationId.current) cancelAnimationFrame(animationId.current);
     };
-  }, [bounds, friction, smoothing]);
+  }, [bounds, friction, smoothing, mode, updateInterval]);
 
   // Event listeners
   useEffect(() => {

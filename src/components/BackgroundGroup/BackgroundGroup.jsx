@@ -2,10 +2,19 @@ import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import Lottie from 'lottie-react';
 import { useParallaxContext } from '../ParallaxContainer';
 
-// Componente Lottie que NUNCA se re-renderiza (solo se monta una vez)
-const StableLottie = memo(({ animationData, loop }) => {
+const StableLottie = memo(({ animationData, loop, speed = 1 }) => {
+  const lottieRef = useRef(null);
+
+  useEffect(() => {
+    const api = lottieRef.current;
+    if (api && typeof api.setSpeed === 'function') {
+      try { api.setSpeed(speed); } catch {}
+    }
+  }, [speed]);
+
   return (
     <Lottie
+      lottieRef={lottieRef}
       animationData={animationData}
       loop={loop}
       autoplay={true}
@@ -13,9 +22,13 @@ const StableLottie = memo(({ animationData, loop }) => {
     />
   );
 }, (prevProps, nextProps) => {
-  // Solo re-renderizar si cambia el animationData (nunca debería cambiar)
-  return prevProps.animationData === nextProps.animationData;
+  return (
+    prevProps.animationData === nextProps.animationData &&
+    prevProps.loop === nextProps.loop &&
+    prevProps.speed === nextProps.speed
+  );
 });
+
 
 // Componente imagen que NUNCA se re-renderiza
 const StableImage = memo(({ src }) => {
@@ -204,7 +217,7 @@ const AudioManager = {
 };
 
 // Componente para elementos interactivos
-const InteractiveElement = ({ element, style }) => {
+const InteractiveElement = ({ element, style, isMobile }) => {
   const [isActive, setIsActive] = useState(false);
   const [shakeOffset, setShakeOffset] = useState({ x: 0, y: 0, scale: 1 });
   const shakeIntervalRef = useRef(null);
@@ -314,6 +327,7 @@ const InteractiveElement = ({ element, style }) => {
         <StableLottie
           animationData={element.lottieData}
           loop={element.loop !== false}
+          speed={isMobile ? 0.85 : 1}
         />
       ) : element.imageSrc ? (
         <StableImage src={element.imageSrc} />
@@ -449,9 +463,14 @@ const BackgroundGroup = ({
     // Calcular offset de parallax individual si el elemento tiene depth diferente
     // En móvil: todos tienen depth=1 excepto 'tableleft'
     let elementDepth = element.depth !== undefined ? element.depth : 1;
-    if (isMobile && element.id !== 'tableleft') {
-      elementDepth = 1; // Sin parallax individual en móvil
+
+    // En móvil: SOLO tableleft mantiene depth; el resto queda depth=1 (sin parallax individual)
+    if (isMobile) {
+      elementDepth = element.id === 'tableleft'
+        ? (element.depth !== undefined ? element.depth : 0.3)
+        : 1;
     }
+
     const depthDiff = 1 - elementDepth; // Cuánto menos se mueve respecto al fondo
     const elementOffsetX = translateX * depthDiff * -1; // Compensar para que se mueva menos
 
@@ -479,6 +498,7 @@ const BackgroundGroup = ({
             key={element.id}
             element={element}
             style={getElementStyle(element)}
+            isMobile={isMobile}
           />
         ))}
       </div>
