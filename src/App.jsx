@@ -92,7 +92,7 @@ const assetsToPreload = [
   robot2,
   tablelittle,
   // Audio
-  bassSound,
+  // bassSound,
   // Lotties (ya están cargados como JSON)
   fan1, fan2, fan3, fan4, fan5,
   speakerLeft, speakerRight,
