@@ -1,1 +1,1 @@
-export { default } from './BackgroundGroup';
+export { default, MuteButton, AudioManager } from './BackgroundGroup';

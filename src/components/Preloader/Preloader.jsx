@@ -14,6 +14,31 @@ const injectStyles = () => {
     .preloader-sliding {
       animation: slideUp 1s cubic-bezier(0.76, 0, 0.24, 1) forwards !important;
     }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .start-button {
+      background: transparent;
+      border: 2px solid #ffffff;
+      color: #ffffff;
+      padding: 16px 48px;
+      font-size: 1.2rem;
+      font-weight: 600;
+      font-family: system-ui, -apple-system, sans-serif;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-top: 2rem;
+      text-transform: uppercase;
+    }
+    .start-button:hover {
+      background: #ffffff;
+      color: #0a0a0a;
+    }
+    .start-button:active {
+      transform: scale(0.98);
+    }
   `;
   document.head.appendChild(style);
 };
@@ -35,54 +60,51 @@ const Preloader = ({
   maxTotalWait = 15000,    // fail-safe total (por si algo se cuelga)
 }) => {
   const [progress, setProgress] = useState(0);
-  const [phase, setPhase] = useState("loading"); // loading | waiting | sliding | done
+  const [phase, setPhase] = useState("loading"); // loading | ready | sliding
   const keepAliveRef = useRef([]); // guarda Image/Audio para Safari
-  const completedRef = useRef(0);
+  const mountedRef = useRef(true); // Track si el componente está montado
 
   useEffect(() => injectStyles(), []);
 
+  // Solo ejecutar una vez al montar
   useEffect(() => {
-    let cancelled = false;
+    mountedRef.current = true;
+
     const startTime = Date.now();
-
-    completedRef.current = 0;
-    setProgress(0);
-    setPhase("loading");
-    keepAliveRef.current = [];
-
+    let completedCount = 0;
     const total = assets.length;
 
+    keepAliveRef.current = [];
+
     const finish = () => {
-      if (cancelled) return;
+      if (!mountedRef.current) return;
       const elapsed = Date.now() - startTime;
       const remaining = Math.max(0, minDisplayTime - elapsed);
       setTimeout(() => {
-        if (!cancelled) {
+        if (mountedRef.current) {
           setProgress(100);
-          setPhase("waiting");
+          setPhase("ready");
         }
       }, remaining);
     };
 
     if (total === 0) {
       setTimeout(() => {
-        if (!cancelled) {
+        if (mountedRef.current) {
           setProgress(100);
-          setPhase("waiting");
+          setPhase("ready");
         }
       }, minDisplayTime);
-      return () => {
-        cancelled = true;
-      };
+      return () => { mountedRef.current = false; };
     }
 
     const markOneDone = () => {
-      if (cancelled) return;
-      completedRef.current += 1;
-      const pct = Math.round((completedRef.current / total) * 100);
-      setProgress(pct);
-
-      if (completedRef.current >= total) finish();
+      completedCount += 1;
+      if (mountedRef.current) {
+        const pct = Math.round((completedCount / total) * 100);
+        setProgress(pct);
+      }
+      if (completedCount >= total) finish();
     };
 
     const withTimeout = (promise, ms) => {
@@ -126,7 +148,6 @@ const Preloader = ({
           try {
             audio.load();
           } catch (e) {
-            // si falla, igual resolvemos
             resolve();
           }
         });
@@ -137,58 +158,41 @@ const Preloader = ({
     };
 
     const preloadAny = (asset) => {
-      // strings: urls
       if (typeof asset === "string") return preloadString(asset);
-
-      // objetos (ej. lotties JSON ya importados): no bloquear
       if (asset && typeof asset === "object") return Promise.resolve();
-
       return Promise.resolve();
     };
 
-    // Fail-safe total: si algo raro pasa, no te quedas colgado
+    // Fail-safe total
     const totalFailSafe = setTimeout(() => {
-      if (!cancelled && phase === "loading") {
-        // fuerza salida
+      if (mountedRef.current) {
         setProgress(100);
-        setPhase("waiting");
+        setPhase("ready");
       }
     }, maxTotalWait);
 
     assets.forEach((asset) => {
       withTimeout(preloadAny(asset), maxAssetWait)
-        .catch(() => {}) // no nos importa el error, solo avanzar
+        .catch(() => {})
         .finally(() => markOneDone());
     });
 
     return () => {
-      cancelled = true;
+      mountedRef.current = false;
       clearTimeout(totalFailSafe);
-      keepAliveRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assets, minDisplayTime, maxAssetWait, maxTotalWait]);
+  }, []); // Solo ejecutar una vez al montar
 
-  // Cuando llegamos a 'waiting', iniciamos el slide
-  useEffect(() => {
-    if (phase === "waiting") {
-      const timer = setTimeout(() => {
-        onComplete?.();
-        setPhase("sliding");
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [phase, onComplete]);
+  // Handler para el botón Start
+  const handleStart = () => {
+    setPhase("sliding");
+    // Llamar onComplete después de la animación
+    setTimeout(() => {
+      onComplete?.();
+    }, 1000);
+  };
 
-  // Cuando termina la animación de sliding
-  useEffect(() => {
-    if (phase === "sliding") {
-      const timer = setTimeout(() => setPhase("done"), 1100);
-      return () => clearTimeout(timer);
-    }
-  }, [phase]);
-
-  if (phase === "done") return null;
 
   const overlayStyle = {
     position: "fixed",
@@ -235,6 +239,18 @@ const Preloader = ({
       <div style={barContainerStyle}>
         <div style={barFillStyle} />
       </div>
+      {phase === "ready" && (
+        <button
+          className="start-button"
+          onClick={handleStart}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            handleStart();
+          }}
+        >
+          Start
+        </button>
+      )}
     </div>
   );
 };

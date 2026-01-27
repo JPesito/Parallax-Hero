@@ -62,11 +62,13 @@ const AudioManager = {
   audio: null,
   activeSpeakers: new Set(),
   fadeInterval: null,
-  stopTimeout: null,
+  stopTimeouts: {}, // Timeouts por speaker
   targetVolume: 0.5,
   isPageVisible: true,
   isUnlocked: false, // Audio desbloqueado por interacción del usuario
   pendingPlay: false, // Hay un play pendiente esperando desbloqueo
+  isMuted: false, // Estado de mute global
+  muteListeners: new Set(), // Listeners para cambios de mute
 
   init(soundSrc, volume = 0.5) {
     if (!this.audio) {
@@ -81,7 +83,7 @@ const AudioManager = {
         this.isPageVisible = !document.hidden;
         if (document.hidden) {
           this.pauseImmediately();
-        } else if (this.activeSpeakers.size > 0) {
+        } else if (this.activeSpeakers.size > 0 && !this.isMuted) {
           this.resume();
         }
       });
@@ -91,7 +93,7 @@ const AudioManager = {
         if (!this.isUnlocked) {
           this.isUnlocked = true;
           // Si hay un play pendiente, reproducir ahora
-          if (this.pendingPlay && this.activeSpeakers.size > 0) {
+          if (this.pendingPlay && this.activeSpeakers.size > 0 && !this.isMuted) {
             this.audio.play().catch(() => {});
             this.fadeIn();
             this.pendingPlay = false;
@@ -105,20 +107,52 @@ const AudioManager = {
     this.targetVolume = volume;
   },
 
+  // Suscribirse a cambios de mute
+  onMuteChange(callback) {
+    this.muteListeners.add(callback);
+    return () => this.muteListeners.delete(callback);
+  },
+
+  // Notificar cambios de mute
+  notifyMuteChange() {
+    this.muteListeners.forEach(cb => cb(this.isMuted));
+  },
+
+  // Toggle mute
+  toggleMute() {
+    this.isMuted = !this.isMuted;
+    if (this.isMuted) {
+      this.pauseImmediately();
+    } else if (this.activeSpeakers.size > 0 && this.isPageVisible && this.isUnlocked) {
+      this.audio.play().catch(() => {});
+      this.fadeIn();
+    }
+    this.notifyMuteChange();
+    return this.isMuted;
+  },
+
+  getMuted() {
+    return this.isMuted;
+  },
+
   activate(speakerId) {
     if (!this.audio || !this.isPageVisible) return;
 
-    // Cancelar fade out y stop timeout
+    // Cancelar fade out
     if (this.fadeInterval) {
       clearInterval(this.fadeInterval);
       this.fadeInterval = null;
     }
-    if (this.stopTimeout) {
-      clearTimeout(this.stopTimeout);
-      this.stopTimeout = null;
+    // Cancelar timeout de este speaker específico
+    if (this.stopTimeouts[speakerId]) {
+      clearTimeout(this.stopTimeouts[speakerId]);
+      delete this.stopTimeouts[speakerId];
     }
 
     this.activeSpeakers.add(speakerId);
+
+    // Si está muteado, no reproducir
+    if (this.isMuted) return;
 
     // Si el audio está desbloqueado, reproducir
     if (this.isUnlocked) {
@@ -132,18 +166,51 @@ const AudioManager = {
     }
   },
 
-  deactivate(speakerId, delay = 5000) {
-    this.stopTimeout = setTimeout(() => {
+  // Para móvil: activar por un tiempo específico y luego desactivar automáticamente
+  activateForDuration(speakerId, duration = 5000) {
+    this.activate(speakerId);
+
+    // Programar desactivación automática
+    if (this.stopTimeouts[speakerId]) {
+      clearTimeout(this.stopTimeouts[speakerId]);
+    }
+
+    this.stopTimeouts[speakerId] = setTimeout(() => {
       this.activeSpeakers.delete(speakerId);
+      delete this.stopTimeouts[speakerId];
 
       if (this.activeSpeakers.size === 0) {
         this.fadeOut();
       }
-    }, delay);
+    }, duration);
+  },
+
+  deactivate(speakerId, delay = 0) {
+    // Cancelar timeout existente de este speaker
+    if (this.stopTimeouts[speakerId]) {
+      clearTimeout(this.stopTimeouts[speakerId]);
+      delete this.stopTimeouts[speakerId];
+    }
+
+    if (delay > 0) {
+      this.stopTimeouts[speakerId] = setTimeout(() => {
+        this.activeSpeakers.delete(speakerId);
+        delete this.stopTimeouts[speakerId];
+
+        if (this.activeSpeakers.size === 0) {
+          this.fadeOut();
+        }
+      }, delay);
+    } else {
+      this.activeSpeakers.delete(speakerId);
+      if (this.activeSpeakers.size === 0) {
+        this.fadeOut();
+      }
+    }
   },
 
   fadeIn(duration = 600) {
-    if (!this.audio) return;
+    if (!this.audio || this.isMuted) return;
 
     if (this.fadeInterval) clearInterval(this.fadeInterval);
 
@@ -198,7 +265,7 @@ const AudioManager = {
   },
 
   resume() {
-    if (this.audio && this.activeSpeakers.size > 0 && this.isPageVisible) {
+    if (this.audio && this.activeSpeakers.size > 0 && this.isPageVisible && !this.isMuted) {
       this.audio.play().catch(() => {});
       this.fadeIn();
     }
@@ -207,7 +274,10 @@ const AudioManager = {
   forceStop() {
     this.activeSpeakers.clear();
     if (this.fadeInterval) clearInterval(this.fadeInterval);
-    if (this.stopTimeout) clearTimeout(this.stopTimeout);
+    Object.keys(this.stopTimeouts).forEach(key => {
+      clearTimeout(this.stopTimeouts[key]);
+    });
+    this.stopTimeouts = {};
     if (this.audio) {
       this.audio.volume = 0;
       this.audio.pause();
@@ -222,6 +292,8 @@ const InteractiveElement = ({ element, style, isMobile }) => {
   const [shakeOffset, setShakeOffset] = useState({ x: 0, y: 0, scale: 1 });
   const shakeIntervalRef = useRef(null);
   const localStopTimeoutRef = useRef(null);
+  const touchActiveRef = useRef(false); // Prevenir múltiples activaciones touch
+  const hitboxRef = useRef(null); // Ref para el hitbox
 
   // Inicializar audio si el elemento lo tiene
   useEffect(() => {
@@ -255,8 +327,55 @@ const InteractiveElement = ({ element, style, isMobile }) => {
     };
   }, [isActive, element.hoverEffect, element.shakeIntensity]);
 
+  // Handler para touch en móvil - usando useCallback para estabilidad
+  const handleTouchStart = useCallback(() => {
+    if (!element.interactive || !isMobile) return;
+
+    // Si ya está activo por touch, ignorar
+    if (touchActiveRef.current) return;
+    touchActiveRef.current = true;
+
+    const duration = element.stopDelay !== undefined ? element.stopDelay : 5000;
+
+    // Cancelar timeout existente
+    if (localStopTimeoutRef.current) {
+      clearTimeout(localStopTimeoutRef.current);
+      localStopTimeoutRef.current = null;
+    }
+
+    setIsActive(true);
+
+    // Activar audio por duración específica (se desactiva solo automáticamente)
+    if (element.soundSrc) {
+      AudioManager.activateForDuration(element.id, duration);
+    }
+
+    // Desactivar efecto visual después de la duración
+    localStopTimeoutRef.current = setTimeout(() => {
+      setIsActive(false);
+      touchActiveRef.current = false;
+    }, duration);
+  }, [element.interactive, element.stopDelay, element.soundSrc, element.id, isMobile]);
+
+  // Agregar event listener de touch con passive: false para evitar warnings
+  useEffect(() => {
+    const hitbox = hitboxRef.current;
+    if (!hitbox || !element.interactive || !isMobile) return;
+
+    const touchHandler = (e) => {
+      e.preventDefault();
+      handleTouchStart();
+    };
+
+    hitbox.addEventListener('touchstart', touchHandler, { passive: false });
+
+    return () => {
+      hitbox.removeEventListener('touchstart', touchHandler);
+    };
+  }, [element.interactive, isMobile, handleTouchStart]);
+
   const handleMouseEnter = () => {
-    if (element.interactive) {
+    if (element.interactive && !isMobile) {
       // Cancelar timeout de parada si existe
       if (localStopTimeoutRef.current) {
         clearTimeout(localStopTimeoutRef.current);
@@ -273,7 +392,7 @@ const InteractiveElement = ({ element, style, isMobile }) => {
   };
 
   const handleMouseLeave = () => {
-    if (element.interactive) {
+    if (element.interactive && !isMobile) {
       const delay = element.stopDelay !== undefined ? element.stopDelay : 5000;
 
       localStopTimeoutRef.current = setTimeout(() => {
@@ -336,6 +455,7 @@ const InteractiveElement = ({ element, style, isMobile }) => {
       {/* Hitbox invisible */}
       {element.interactive && (
         <div
+          ref={hitboxRef}
           style={hitboxStyle}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
@@ -349,6 +469,10 @@ const BackgroundGroup = ({
   backgroundSrc,
   backgroundWidth,
   backgroundHeight,
+  // Props para fondo móvil
+  mobileBackgroundSrc,
+  mobileBackgroundWidth,
+  mobileBackgroundHeight,
   elements = [], // Array de { id, lottieData, x, y, width, height, zIndex, mobileX, mobileY, mobileWidth }
   zIndex = 1,
   invertX = true,
@@ -358,6 +482,9 @@ const BackgroundGroup = ({
   const [maxOffset, setMaxOffset] = useState(0);
   const [imageStyle, setImageStyle] = useState({ height: '100vh', width: 'auto' });
   const [isMobile, setIsMobile] = useState(false);
+  const [currentBgSrc, setCurrentBgSrc] = useState(backgroundSrc);
+  const [currentBgWidth, setCurrentBgWidth] = useState(backgroundWidth);
+  const [currentBgHeight, setCurrentBgHeight] = useState(backgroundHeight);
 
   useEffect(() => {
     if (!backgroundWidth || !backgroundHeight) return;
@@ -366,13 +493,24 @@ const BackgroundGroup = ({
       const viewportWidth = window.innerWidth;
       // Usar la altura pasada como prop o window.innerHeight
       const viewportHeight = vpHeightProp ? parseInt(vpHeightProp) : window.innerHeight;
-      const imageAspectRatio = backgroundWidth / backgroundHeight;
-      const isMobile = viewportWidth < MOBILE_BREAKPOINT;
+      const isMobileDevice = viewportWidth < MOBILE_BREAKPOINT;
+
+      // Seleccionar fondo según dispositivo
+      const useMobileBg = isMobileDevice && mobileBackgroundSrc;
+      const bgWidth = useMobileBg ? mobileBackgroundWidth : backgroundWidth;
+      const bgHeight = useMobileBg ? mobileBackgroundHeight : backgroundHeight;
+      const bgSrc = useMobileBg ? mobileBackgroundSrc : backgroundSrc;
+
+      setCurrentBgSrc(bgSrc);
+      setCurrentBgWidth(bgWidth);
+      setCurrentBgHeight(bgHeight);
+
+      const imageAspectRatio = bgWidth / bgHeight;
 
       let finalWidth;
       let finalHeight;
 
-      if (isMobile) {
+      if (isMobileDevice) {
         // MÓVIL: Primero asegurar que cubra el alto del viewport
         // Luego agregar ancho extra para permitir el drag horizontal
 
@@ -419,13 +557,13 @@ const BackgroundGroup = ({
       const extraWidth = finalWidth - viewportWidth;
       const newMaxOffset = Math.max(0, (extraWidth / 2) - 2);
       setMaxOffset(newMaxOffset);
-      setIsMobile(isMobile);
+      setIsMobile(isMobileDevice);
     };
 
     calculateDimensions();
     window.addEventListener('resize', calculateDimensions);
     return () => window.removeEventListener('resize', calculateDimensions);
-  }, [backgroundWidth, backgroundHeight, vpHeightProp]);
+  }, [backgroundWidth, backgroundHeight, mobileBackgroundSrc, mobileBackgroundWidth, mobileBackgroundHeight, backgroundSrc, vpHeightProp]);
 
   // Calcular transformación parallax
   const xMult = invertX ? -1 : 1;
@@ -454,11 +592,15 @@ const BackgroundGroup = ({
     const y = isMobile && element.mobileY !== undefined ? element.mobileY : element.y;
     const width = isMobile && element.mobileWidth !== undefined ? element.mobileWidth : element.width;
 
+    // Usar dimensiones del fondo actual (móvil o desktop)
+    const bgW = currentBgWidth;
+    const bgH = currentBgHeight;
+
     // Convertir posición de píxeles a porcentaje de la imagen
-    const leftPercent = (x / backgroundWidth) * 100;
-    const topPercent = (y / backgroundHeight) * 100;
-    const widthPercent = (width / backgroundWidth) * 100;
-    const heightPercent = element.height ? (element.height / backgroundHeight) * 100 : 'auto';
+    const leftPercent = (x / bgW) * 100;
+    const topPercent = (y / bgH) * 100;
+    const widthPercent = (width / bgW) * 100;
+    const heightPercent = element.height ? (element.height / bgH) * 100 : 'auto';
 
     // Calcular offset de parallax individual si el elemento tiene depth diferente
     // En móvil: todos tienen depth=1 excepto 'tableleft'
@@ -490,7 +632,7 @@ const BackgroundGroup = ({
     <div style={containerStyle}>
       <div style={wrapperStyle}>
         {/* Imagen de fondo */}
-        <img src={backgroundSrc} alt="" style={{ ...imageStyle, display: 'block' }} />
+        <img src={currentBgSrc} alt="" style={{ ...imageStyle, display: 'block' }} />
 
         {/* Elementos posicionados sobre la imagen (Lotties o PNGs) */}
         {elements.map((element) => (
@@ -506,4 +648,78 @@ const BackgroundGroup = ({
   );
 };
 
+// Botón de Mute flotante
+const MuteButton = () => {
+  const [isMuted, setIsMuted] = useState(() => AudioManager.getMuted());
+
+  useEffect(() => {
+    // Suscribirse a cambios de mute
+    const unsubscribe = AudioManager.onMuteChange((muted) => {
+      setIsMuted(muted);
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleToggle = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    AudioManager.toggleMute();
+  };
+
+  const buttonStyle = {
+    position: 'fixed',
+    bottom: '20px',
+    right: '20px',
+    width: '50px',
+    height: '50px',
+    borderRadius: '50%',
+    background: 'rgba(255, 255, 255, 0.1)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    transition: 'all 0.3s ease',
+    padding: 0,
+  };
+
+  const iconStyle = {
+    width: '24px',
+    height: '24px',
+    fill: 'none',
+    stroke: '#ffffff',
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+  };
+
+  return (
+    <button
+      style={buttonStyle}
+      onClick={handleToggle}
+      onTouchEnd={handleToggle}
+      aria-label={isMuted ? 'Unmute' : 'Mute'}
+    >
+      {isMuted ? (
+        // Icono de mute (speaker con X)
+        <svg style={iconStyle} viewBox="0 0 24 24">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="rgba(255,255,255,0.2)" />
+          <line x1="23" y1="9" x2="17" y2="15" />
+          <line x1="17" y1="9" x2="23" y2="15" />
+        </svg>
+      ) : (
+        // Icono de sonido (speaker con ondas)
+        <svg style={iconStyle} viewBox="0 0 24 24">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="rgba(255,255,255,0.2)" />
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+        </svg>
+      )}
+    </button>
+  );
+};
+
 export default BackgroundGroup;
+export { MuteButton, AudioManager };

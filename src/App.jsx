@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import Hero from './components/Hero';
 import Preloader from './components/Preloader';
+import { MuteButton } from './components/BackgroundGroup';
 import './styles/global.css';
 
 // Cambia este string cada vez que quieras comprobar que el móvil cargó el JS nuevo
 const BUILD = 'debug-mobile-scrub-v1';
 
+// Control global del preloader - se reinicia SOLO al recargar página
+const PRELOADER_KEY = "__PRELOADER_DONE__";
+const isPreloaderDone = () => window[PRELOADER_KEY] === true;
+const setPreloaderDone = () => { window[PRELOADER_KEY] = true; };
+
 // ============================================
 // IMÁGENES
 // ============================================
 import background from './assets/images/HV-MTL_01_Background.jpg';
+import backgroundMobile from './assets/images/Fondo mobile.jpeg';
 import lightFilter from './assets/images/Light filter.png';
 import filterOverlay from './assets/images/Filter.png';
 import robot1 from './assets/images/Robot 1.png';
@@ -46,16 +53,25 @@ import Tarjeta from './assets/lotties/Tarjeta.json';
 const BACKGROUND_WIDTH = 1771;
 const BACKGROUND_HEIGHT = 865;
 
+// Dimensiones del fondo móvil
+const BACKGROUND_WIDTH_MOBILE = 1120;
+const BACKGROUND_HEIGHT_MOBILE = 751;
+
 const backgroundGroup = {
   src: background,
   width: BACKGROUND_WIDTH,
   height: BACKGROUND_HEIGHT,
+  // Configuración para móvil
+  mobileSrc: backgroundMobile,
+  mobileWidth: BACKGROUND_WIDTH_MOBILE,
+  mobileHeight: BACKGROUND_HEIGHT_MOBILE,
   elements: [
-    { id: 'fan1', lottieData: fan1, x: 265, y: 127, width: 120, zIndex: 2 },
-    { id: 'fan2', lottieData: fan2, x: 500, y: 155, width: 115, zIndex: 2 },
-    { id: 'fan3', lottieData: fan3, x: 725, y: 182, width: 120, zIndex: 2 },
-    { id: 'fan4', lottieData: fan4, x: 1060, y: 180, width: 110, zIndex: 2 },
-    { id: 'fan5', lottieData: fan5, x: 1583, y: 130, width: 140, zIndex: 2 },
+    // Fans - posiciones móviles escaladas + offset Y de 177
+    { id: 'fan1', lottieData: fan1, x: 265, y: 127, width: 120, zIndex: 2, mobileX: 167, mobileY: 287, mobileWidth: 76 },
+    { id: 'fan2', lottieData: fan2, x: 500, y: 155, width: 115, zIndex: 2, mobileX: 316, mobileY: 312, mobileWidth: 73 },
+    { id: 'fan3', lottieData: fan3, x: 725, y: 182, width: 120, zIndex: 2, mobileX: 458, mobileY: 335, mobileWidth: 76 },
+    { id: 'fan4', lottieData: fan4, x: 1060, y: 180, width: 110, zIndex: 2, mobileX: 670, mobileY: 333, mobileWidth: 70 },
+    { id: 'fan5', lottieData: fan5, x: 1583, y: 130, width: 140, zIndex: 2, mobileX: 1000, mobileY: 290, mobileWidth: 88 },
 
     {
       id: 'speakerLeft',
@@ -74,6 +90,9 @@ const backgroundGroup = {
       hitboxBottom: 25,
       hitboxLeft: 10,
       hitboxRight: 6,
+      mobileX: 35,
+      mobileY: 264,
+      mobileWidth: 152,
     },
     {
       id: 'speakerRight',
@@ -92,27 +111,30 @@ const backgroundGroup = {
       hitboxBottom: 30,
       hitboxLeft: 12,
       hitboxRight: 25,
+      mobileX: 815,
+      mobileY: 285,
+      mobileWidth: 164,
     },
 
-    { id: 'main', lottieData: main, x: -20, y: 110, width: 1800, zIndex: 3, depth: 0.95 },
-    { id: 'lights', lottieData: lights, x: 210, y: -90, width: 1600, zIndex: 5 },
-    { id: 'arm1', lottieData: arm1, x: 280, y: 185, width: 450, zIndex: 2, depth: 0.95 },
-    { id: 'arm2', lottieData: arm2, x: 655, y: 160, width: 350, zIndex: 2, depth: 0.95 },
-    { id: 'tableleft', lottieData: tableleft, x: -40, y: 538, width: 560, zIndex: 4, depth: 0.3, mobileX: 300 },
-    { id: 'test', lottieData: test, x: 1205, y: 535, width: 600, zIndex: 5, depth: 0.95 },
-    { id: 'Tarjeta', lottieData: Tarjeta, x: 1335, y: 500, width: 110, zIndex: 6 },
+    { id: 'main', lottieData: main, x: -20, y: 110, width: 1800, zIndex: 3, depth: 0.95, mobileX: -13, mobileY: 272, mobileWidth: 1138 },
+    { id: 'lights', lottieData: lights, x: 210, y: -90, width: 1600, zIndex: 5, mobileX: 133, mobileY: 99, mobileWidth: 1011 },
+    { id: 'arm1', lottieData: arm1, x: 280, y: 185, width: 450, zIndex: 2, depth: 0.95, mobileX: 177, mobileY: 338, mobileWidth: 284 },
+    { id: 'arm2', lottieData: arm2, x: 655, y: 160, width: 350, zIndex: 2, depth: 0.95, mobileX: 414, mobileY: 316, mobileWidth: 221 },
+    { id: 'tableleft', lottieData: tableleft, x: -40, y: 538, width: 560, zIndex: 4, depth: 0.3, mobileX: -25, mobileY: 644, mobileWidth: 354 },
+    { id: 'test', lottieData: test, x: 1205, y: 535, width: 600, zIndex: 5, depth: 0.95, mobileX: 762, mobileY: 641, mobileWidth: 379 },
+    { id: 'Tarjeta', lottieData: Tarjeta, x: 1335, y: 500, width: 110, zIndex: 6, mobileX: 844, mobileY: 611, mobileWidth: 70 },
 
     // Filtros PNG
-    { id: 'lightFilter1', imageSrc: lightFilter, opacity: 0.1, x: 30, y: 20, width: 800, zIndex: 6 },
-    { id: 'lightFilter2', imageSrc: lightFilter, opacity: 0.1, x: 585, y: 90, width: 500, zIndex: 6 },
-    { id: 'lightFilter3', imageSrc: lightFilter, opacity: 0.1, x: 900, y: 0, width: 1000, zIndex: 6 },
-    { id: 'filterOverlay', imageSrc: filterOverlay, opacity: 0.6, x: 0, y: 0, width: 1771, zIndex: 1 },
+    { id: 'lightFilter1', imageSrc: lightFilter, opacity: 0.1, x: 30, y: 20, width: 800, zIndex: 6, mobileX: 19, mobileY: 194, mobileWidth: 505 },
+    { id: 'lightFilter2', imageSrc: lightFilter, opacity: 0.1, x: 585, y: 90, width: 500, zIndex: 6, mobileX: 370, mobileY: 255, mobileWidth: 316 },
+    { id: 'lightFilter3', imageSrc: lightFilter, opacity: 0.1, x: 900, y: 0, width: 1000, zIndex: 6, mobileX: 569, mobileY: 177, mobileWidth: 632 },
+    { id: 'filterOverlay', imageSrc: filterOverlay, opacity: 0.6, x: 0, y: 0, width: 1771, zIndex: 1, mobileX: 0, mobileY: 0, mobileWidth: 1120 },
 
     // Imagenes PNG
-    { id: 'robot1', imageSrc: robot1, x: -198, y: 190, width: 560, zIndex: 2, depth: 0.95 },
-    { id: 'robot2', imageSrc: robot2, x: 1290, y: 195, width: 560, zIndex: 4, depth: 0.95 },
-    { id: 'tablelittle', imageSrc: tablelittle, x: 1245, y: 535, width: 100, zIndex: 4, depth: 0.95 },
-    { id: 'Encubadora', imageSrc: Encubadora, x: 1290, y: 470, width: 200, zIndex: 5 }
+    { id: 'robot1', imageSrc: robot1, x: -198, y: 190, width: 560, zIndex: 2, depth: 0.95, mobileX: -125, mobileY: 342, mobileWidth: 354 },
+    { id: 'robot2', imageSrc: robot2, x: 1290, y: 195, width: 560, zIndex: 4, depth: 0.95, mobileX: 815, mobileY: 346, mobileWidth: 354 },
+    { id: 'tablelittle', imageSrc: tablelittle, x: 1245, y: 535, width: 100, zIndex: 4, depth: 0.95, mobileX: 787, mobileY: 641, mobileWidth: 63 },
+    { id: 'Encubadora', imageSrc: Encubadora, x: 1290, y: 470, width: 200, zIndex: 5, mobileX: 815, mobileY: 585, mobileWidth: 126 }
   ],
 };
 
@@ -126,6 +148,7 @@ const imagesDimensions = {};
 // Assets para precargar
 const assetsToPreload = [
   background,
+  backgroundMobile,
   lightFilter,
   filterOverlay,
   robot1,
@@ -185,6 +208,9 @@ function DebugOverlay({ enabled }) {
 }
 
 function App() {
+  // Estado para controlar si mostrar el preloader
+  const [showPreloader, setShowPreloader] = useState(() => !isPreloaderDone());
+
   const debugEnabled = useMemo(() => {
     try {
       return new URLSearchParams(window.location.search).has('debug');
@@ -193,14 +219,22 @@ function App() {
     }
   }, []);
 
+  // Handler cuando el preloader termina
+  const handlePreloaderComplete = () => {
+    setPreloaderDone();
+    setShowPreloader(false);
+  };
+
   return (
     <>
       <DebugOverlay enabled={debugEnabled} />
 
-      <Preloader
-        assets={assetsToPreload}
-        onComplete={() => {}}
-      />
+      {showPreloader && (
+        <Preloader
+          assets={assetsToPreload}
+          onComplete={handlePreloaderComplete}
+        />
+      )}
 
       <div>
         <Hero
@@ -214,6 +248,7 @@ function App() {
           showGradient={false}
           showPlaceholders={false}
         />
+        <MuteButton />
       </div>
     </>
   );
