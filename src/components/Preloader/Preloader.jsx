@@ -59,12 +59,28 @@ const Preloader = ({
   maxAssetWait = 8000,     // timeout por asset
   maxTotalWait = 15000,    // fail-safe total (por si algo se cuelga)
 }) => {
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState(0);         // progreso real de assets
+  const [displayProgress, setDisplayProgress] = useState(0); // progreso visual suavizado
   const [phase, setPhase] = useState("loading"); // loading | ready | sliding
   const keepAliveRef = useRef([]); // guarda Image/Audio para Safari
   const mountedRef = useRef(true); // Track si el componente está montado
 
   useEffect(() => injectStyles(), []);
+
+  // Animación suave del progreso visual hacia el progreso real
+  useEffect(() => {
+    if (phase !== "loading") return;
+    const interval = setInterval(() => {
+      setDisplayProgress((prev) => {
+        if (prev >= progress) return prev;
+        // Avanzar más rápido cuando la diferencia es grande
+        const diff = progress - prev;
+        const step = Math.max(1, Math.ceil(diff * 0.15));
+        return Math.min(progress, prev + step);
+      });
+    }, 50);
+    return () => clearInterval(interval);
+  }, [progress, phase]);
 
   // Solo ejecutar una vez al montar
   useEffect(() => {
@@ -79,7 +95,8 @@ const Preloader = ({
     const finish = () => {
       if (!mountedRef.current) return;
       const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, minDisplayTime - elapsed);
+      // Esperar minDisplayTime + un poco más para que el contador visual alcance 100
+      const remaining = Math.max(0, minDisplayTime - elapsed) + 600;
       setTimeout(() => {
         if (mountedRef.current) {
           setProgress(100);
@@ -226,7 +243,7 @@ const Preloader = ({
   };
 
   const barFillStyle = {
-    width: `${progress}%`,
+    width: `${phase === "ready" || phase === "sliding" ? 100 : displayProgress}%`,
     height: "100%",
     backgroundColor: "#ffffff",
     borderRadius: "2px",
@@ -235,7 +252,7 @@ const Preloader = ({
 
   return (
     <div style={overlayStyle} className={phase === "sliding" ? "preloader-sliding" : ""}>
-      <div style={percentageStyle}>{progress}%</div>
+      <div style={percentageStyle}>{phase === "ready" || phase === "sliding" ? 100 : displayProgress}%</div>
       <div style={barContainerStyle}>
         <div style={barFillStyle} />
       </div>

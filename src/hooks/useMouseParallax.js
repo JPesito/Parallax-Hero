@@ -1,15 +1,30 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const useMouseParallax = (options = {}) => {
   const {
     sensitivity = 1,
     smoothing = 0.05,  // Más suave (antes era 0.1)
     resetOnLeave = false,  // NO resetear cuando el mouse sale
+    initialX = 0,
+    initialY = 0,
   } = options;
 
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const targetPos = useRef({ x: 0, y: 0 });
-  const currentPos = useRef({ x: 0, y: 0 });
+  const [position, setPosition] = useState({ x: initialX, y: initialY });
+  const targetPos = useRef({ x: initialX, y: initialY });
+  const currentPos = useRef({ x: initialX, y: initialY });
+  const hasInitialized = useRef(false);
+
+  // FORZAR posición inicial al montar
+  useEffect(() => {
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      targetPos.current.x = initialX;
+      targetPos.current.y = initialY;
+      currentPos.current.x = initialX;
+      currentPos.current.y = initialY;
+      setPosition({ x: initialX, y: initialY });
+    }
+  }, [initialX, initialY]);
 
   useEffect(() => {
     let running = true;
@@ -59,15 +74,7 @@ const useMouseParallax = (options = {}) => {
     };
   }, [sensitivity, smoothing, resetOnLeave]);
 
-  const getTransform = useCallback((depth, maxOffset = 50, invertX = false, invertY = false) => {
-    const xMult = invertX ? -1 : 1;
-    const yMult = invertY ? -1 : 1;
-    const x = position.x * depth * maxOffset * xMult;
-    const y = position.y * depth * maxOffset * yMult;
-    return { x, y };
-  }, [position.x, position.y]);
-
-  return { position, getTransform };
+  return { position };
 };
 
 export default useMouseParallax;

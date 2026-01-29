@@ -4,7 +4,10 @@
       "Bash(tree:*)",
       "Bash(npm run build:*)",
       "Bash(dir /O-S)",
-      "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Users\\\\Juan Torres\\\\Desktop\\\\Devs\\\\Bangluxor\\\\Gabriel\\\\parallax-hero\\\\src\\\\assets\\\\lotties'' | Sort-Object Length -Descending | Select-Object Name, @{Name=''SizeMB'';Expression={[math]::Round\\($_Length/1MB,2\\)}} | Format-Table -AutoSize\")"
+      "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Users\\\\Juan Torres\\\\Desktop\\\\Devs\\\\Bangluxor\\\\Gabriel\\\\parallax-hero\\\\src\\\\assets\\\\lotties'' | Sort-Object Length -Descending | Select-Object Name, @{Name=''SizeMB'';Expression={[math]::Round\\($_Length/1MB,2\\)}} | Format-Table -AutoSize\")",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(npx vite build)"
     ]
   }
 }

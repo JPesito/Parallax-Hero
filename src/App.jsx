@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Hero from './components/Hero';
 import Preloader from './components/Preloader';
-import { MuteButton } from './components/BackgroundGroup';
+import { MuteButton, BackgroundAudioManager } from './components/BackgroundGroup';
 import './styles/global.css';
 
 // Cambia este string cada vez que quieras comprobar que el móvil cargó el JS nuevo
@@ -30,6 +30,13 @@ import Encubadora from './assets/images/Encubadora.png';
 import bassSound from './assets/sounds/bass.mp3';
 
 // ============================================
+// SONIDOS DE FONDO (ambient)
+// ============================================
+import ambientSound from './assets/sounds/ambient.mp3';
+// import factorySound from './assets/sounds/factory.mp3'; // Descomentar cuando exista el archivo
+const factorySound = null;
+
+// ============================================
 // LOTTIES - Elementos fijos al fondo
 // ============================================
 import fan1 from './assets/lotties/Fan 1.json';
@@ -44,7 +51,7 @@ import lights from './assets/lotties/Lights.json';
 import arm1 from './assets/lotties/Brazo_01.json';
 import arm2 from './assets/lotties/Arm 2.json';
 import tableleft from './assets/lotties/Main table left.json';
-import test from './assets/lotties/Table left.json';
+import tableRight from './assets/lotties/Table left.json';
 import Tarjeta from './assets/lotties/Tarjeta.json';
 
 // ============================================
@@ -67,11 +74,11 @@ const backgroundGroup = {
   mobileHeight: BACKGROUND_HEIGHT_MOBILE,
   elements: [
     // Fans - posiciones móviles escaladas + offset Y de 177
-    { id: 'fan1', lottieData: fan1, x: 265, y: 127, width: 120, zIndex: 2, mobileX: 167, mobileY: 287, mobileWidth: 76 },
-    { id: 'fan2', lottieData: fan2, x: 500, y: 155, width: 115, zIndex: 2, mobileX: 316, mobileY: 312, mobileWidth: 73 },
-    { id: 'fan3', lottieData: fan3, x: 725, y: 182, width: 120, zIndex: 2, mobileX: 458, mobileY: 335, mobileWidth: 76 },
-    { id: 'fan4', lottieData: fan4, x: 1060, y: 180, width: 110, zIndex: 2, mobileX: 670, mobileY: 333, mobileWidth: 70 },
-    { id: 'fan5', lottieData: fan5, x: 1583, y: 130, width: 140, zIndex: 2, mobileX: 1000, mobileY: 290, mobileWidth: 88 },
+    { id: 'fan1', lottieData: fan1, x: 265, y: 127, width: 120, zIndex: 2, mobileX: 167, mobileY: 255, mobileWidth: 76 },
+    { id: 'fan2', lottieData: fan2, x: 500, y: 155, width: 115, zIndex: 2, mobileX: 316, mobileY: 270, mobileWidth: 73 },
+    { id: 'fan3', lottieData: fan3, x: 725, y: 182, width: 120, zIndex: 2, mobileX: 458, mobileY: 290, mobileWidth: 76 },
+    { id: 'fan4', lottieData: fan4, x: 1060, y: 180, width: 110, zIndex: 2, mobileX: 670, mobileY: 288, mobileWidth: 70 },
+    { id: 'fan5', lottieData: fan5, x: 1583, y: 110, width: 140, zIndex: 2, mobileX: 1000, mobileY: 245, mobileWidth: 88 },
 
     {
       id: 'speakerLeft',
@@ -91,7 +98,7 @@ const backgroundGroup = {
       hitboxLeft: 10,
       hitboxRight: 6,
       mobileX: 35,
-      mobileY: 264,
+      mobileY: 235,
       mobileWidth: 152,
     },
     {
@@ -112,17 +119,17 @@ const backgroundGroup = {
       hitboxLeft: 12,
       hitboxRight: 25,
       mobileX: 815,
-      mobileY: 285,
+      mobileY: 255,
       mobileWidth: 164,
     },
 
     { id: 'main', lottieData: main, x: -20, y: 110, width: 1800, zIndex: 3, depth: 0.95, mobileX: -13, mobileY: 272, mobileWidth: 1138 },
-    { id: 'lights', lottieData: lights, x: 210, y: -90, width: 1600, zIndex: 5, mobileX: 133, mobileY: 99, mobileWidth: 1011 },
-    { id: 'arm1', lottieData: arm1, x: 280, y: 185, width: 450, zIndex: 2, depth: 0.95, mobileX: 177, mobileY: 338, mobileWidth: 284 },
-    { id: 'arm2', lottieData: arm2, x: 655, y: 160, width: 350, zIndex: 2, depth: 0.95, mobileX: 414, mobileY: 316, mobileWidth: 221 },
-    { id: 'tableleft', lottieData: tableleft, x: -40, y: 538, width: 560, zIndex: 4, depth: 0.3, mobileX: -25, mobileY: 644, mobileWidth: 354 },
-    { id: 'test', lottieData: test, x: 1205, y: 535, width: 600, zIndex: 5, depth: 0.95, mobileX: 762, mobileY: 641, mobileWidth: 379 },
-    { id: 'Tarjeta', lottieData: Tarjeta, x: 1335, y: 500, width: 110, zIndex: 6, mobileX: 844, mobileY: 611, mobileWidth: 70 },
+    { id: 'lights', lottieData: lights, x: 210, y: -90, width: 1600, zIndex: 5, mobileX: 133, mobileY: 120, mobileWidth: 1011 },
+    { id: 'arm1', lottieData: arm1, x: 280, y: 185, width: 450, zIndex: 2, depth: 0.95, mobileX: 177, mobileY: 300, mobileWidth: 284 },
+    { id: 'arm2', lottieData: arm2, x: 655, y: 160, width: 350, zIndex: 2, depth: 0.95, mobileX: 414, mobileY: 300, mobileWidth: 221 },
+    { id: 'tableleft', lottieData: tableleft, x: -40, y: 538, width: 560, zIndex: 4, depth: 0.5, mobileX: 180, mobileY: 545, mobileWidth: 354 },
+    { id: 'tableRight', lottieData: tableRight, x: 1205, y: 535, width: 600, zIndex: 5, depth: 0.95, mobileX: 762, mobileY: 530, mobileWidth: 379 },
+    { id: 'Tarjeta', lottieData: Tarjeta, x: 1335, y: 500, width: 110, zIndex: 6, mobileX: 843, mobileY: 500, mobileWidth: 70 },
 
     // Filtros PNG
     { id: 'lightFilter1', imageSrc: lightFilter, opacity: 0.1, x: 30, y: 20, width: 800, zIndex: 6, mobileX: 19, mobileY: 194, mobileWidth: 505 },
@@ -131,19 +138,12 @@ const backgroundGroup = {
     { id: 'filterOverlay', imageSrc: filterOverlay, opacity: 0.6, x: 0, y: 0, width: 1771, zIndex: 1, mobileX: 0, mobileY: 0, mobileWidth: 1120 },
 
     // Imagenes PNG
-    { id: 'robot1', imageSrc: robot1, x: -198, y: 190, width: 560, zIndex: 2, depth: 0.95, mobileX: -125, mobileY: 342, mobileWidth: 354 },
-    { id: 'robot2', imageSrc: robot2, x: 1290, y: 195, width: 560, zIndex: 4, depth: 0.95, mobileX: 815, mobileY: 346, mobileWidth: 354 },
-    { id: 'tablelittle', imageSrc: tablelittle, x: 1245, y: 535, width: 100, zIndex: 4, depth: 0.95, mobileX: 787, mobileY: 641, mobileWidth: 63 },
-    { id: 'Encubadora', imageSrc: Encubadora, x: 1290, y: 470, width: 200, zIndex: 5, mobileX: 815, mobileY: 585, mobileWidth: 126 }
+    { id: 'robot1', imageSrc: robot1, x: -198, y: 190, width: 560, zIndex: 2, depth: 0.95, mobileX: -125, mobileY: 300, mobileWidth: 354 },
+    { id: 'robot2', imageSrc: robot2, x: 1290, y: 195, width: 560, zIndex: 4, depth: 0.95, mobileX: 815, mobileY: 300, mobileWidth: 354 },
+    { id: 'tablelittle', imageSrc: tablelittle, x: 1245, y: 535, width: 100, zIndex: 4, depth: 0.95, mobileX: 787, mobileY: 530, mobileWidth: 63 },
+    { id: 'Encubadora', imageSrc: Encubadora, x: 1290, y: 470, width: 200, zIndex: 5, mobileX: 815, mobileY: 485, mobileWidth: 126 }
   ],
 };
-
-// ============================================
-// CAPAS EXTRA (en tu proyecto están vacías)
-// ============================================
-const lottiesData = {};
-const imagesData = {};
-const imagesDimensions = {};
 
 // Assets para precargar
 const assetsToPreload = [
@@ -160,7 +160,8 @@ const assetsToPreload = [
   fan1, fan2, fan3, fan4, fan5,
   speakerLeft, speakerRight,
   main, lights, arm1, arm2,
-  tableleft, test,
+  tableleft, tableRight, Tarjeta,
+  Encubadora,
 ];
 
 function DebugOverlay({ enabled }) {
@@ -211,6 +212,12 @@ function App() {
   // Estado para controlar si mostrar el preloader
   const [showPreloader, setShowPreloader] = useState(() => !isPreloaderDone());
 
+  // Inicializar audio ambiental de fondo
+  useEffect(() => {
+    BackgroundAudioManager.init({ ambient: ambientSound, factory: factorySound });
+    return () => BackgroundAudioManager.destroy();
+  }, []);
+
   const debugEnabled = useMemo(() => {
     try {
       return new URLSearchParams(window.location.search).has('debug');
@@ -239,14 +246,9 @@ function App() {
       <div>
         <Hero
           backgroundGroup={backgroundGroup}
-          lottiesData={lottiesData}
-          imagesData={imagesData}
-          imagesDimensions={imagesDimensions}
           sensitivity={1}
           smoothing={0.1}
           backgroundColor="#0a0a0a"
-          showGradient={false}
-          showPlaceholders={false}
         />
         <MuteButton />
       </div>

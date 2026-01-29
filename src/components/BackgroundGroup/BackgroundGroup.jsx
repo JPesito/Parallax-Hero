@@ -101,8 +101,8 @@ const AudioManager = {
         }
       };
 
-      document.addEventListener('click', unlockAudio, { once: false });
-      document.addEventListener('touchstart', unlockAudio, { once: false });
+      document.addEventListener('click', unlockAudio, { once: true });
+      document.addEventListener('touchstart', unlockAudio, { once: true });
     }
     this.targetVolume = volume;
   },
@@ -284,6 +284,151 @@ const AudioManager = {
       this.audio.currentTime = 0;
     }
   }
+};
+
+// ========================================
+// BACKGROUND AUDIO MANAGER - Audio ambiental de fondo
+// ========================================
+const BackgroundAudioManager = {
+  tracks: {},
+  volumes: {},
+  fadeIntervals: {},
+  isInitialized: false,
+  isPlaying: false,
+  unsubscribeMute: null,
+
+  init(sources) {
+    // sources: { ambient: url|null, factory: url|null }
+    if (this.isInitialized) return;
+
+    const defaultVolumes = { ambient: 0.07, factory: 0.06 };
+    let hasValidSource = false;
+
+    for (const [key, src] of Object.entries(sources)) {
+      if (!src) continue;
+      hasValidSource = true;
+      const audio = new Audio(src);
+      audio.loop = true;
+      audio.preload = 'auto';
+      audio.volume = 0;
+      this.tracks[key] = audio;
+      this.volumes[key] = defaultVolumes[key] || 0.06;
+    }
+
+    if (!hasValidSource) return;
+    this.isInitialized = true;
+
+    // Subscribe to mute changes from AudioManager
+    this.unsubscribeMute = AudioManager.onMuteChange((muted) => {
+      if (muted) {
+        this.pause();
+      } else {
+        this.play();
+      }
+    });
+
+    // Visibility change
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.pause();
+      } else if (!AudioManager.getMuted()) {
+        this.play();
+      }
+    });
+
+    // Try autoplay, fallback to first interaction
+    if (!AudioManager.getMuted()) {
+      this._tryPlay();
+    }
+  },
+
+  _tryPlay() {
+    const keys = Object.keys(this.tracks);
+    if (keys.length === 0) return;
+
+    const first = this.tracks[keys[0]];
+    const attempt = first.play();
+    if (attempt) {
+      attempt.then(() => {
+        first.pause();
+        first.currentTime = 0;
+        this.play();
+      }).catch(() => {
+        // Autoplay blocked, wait for user interaction
+        const unlock = () => {
+          if (!AudioManager.getMuted()) {
+            this.play();
+          }
+          document.removeEventListener('click', unlock);
+          document.removeEventListener('touchstart', unlock);
+        };
+        document.addEventListener('click', unlock, { once: true });
+        document.addEventListener('touchstart', unlock, { once: true });
+      });
+    }
+  },
+
+  play() {
+    if (!this.isInitialized || document.hidden || AudioManager.getMuted()) return;
+    this.isPlaying = true;
+
+    for (const [key, audio] of Object.entries(this.tracks)) {
+      if (audio.paused) {
+        audio.play().catch(() => {});
+      }
+      this._fadeIn(key, 2000);
+    }
+  },
+
+  pause() {
+    this.isPlaying = false;
+    for (const [key, audio] of Object.entries(this.tracks)) {
+      if (this.fadeIntervals[key]) {
+        clearInterval(this.fadeIntervals[key]);
+        this.fadeIntervals[key] = null;
+      }
+      audio.pause();
+      audio.volume = 0;
+    }
+  },
+
+  _fadeIn(key, duration = 2000) {
+    const audio = this.tracks[key];
+    const target = this.volumes[key];
+    if (!audio) return;
+
+    if (this.fadeIntervals[key]) clearInterval(this.fadeIntervals[key]);
+
+    const steps = 30;
+    const stepTime = duration / steps;
+    const startVol = audio.volume;
+    const volStep = (target - startVol) / steps;
+    let step = 0;
+
+    this.fadeIntervals[key] = setInterval(() => {
+      step++;
+      if (step >= steps) {
+        audio.volume = target;
+        clearInterval(this.fadeIntervals[key]);
+        this.fadeIntervals[key] = null;
+      } else {
+        audio.volume = Math.min(target, startVol + volStep * step);
+      }
+    }, stepTime);
+  },
+
+  destroy() {
+    this.pause();
+    for (const audio of Object.values(this.tracks)) {
+      audio.src = '';
+    }
+    this.tracks = {};
+    this.isInitialized = false;
+    if (this.unsubscribeMute) {
+      this.unsubscribeMute();
+      this.unsubscribeMute = null;
+    }
+  },
 };
 
 // Componente para elementos interactivos
@@ -628,23 +773,55 @@ const BackgroundGroup = ({
     };
   };
 
-  return (
-    <div style={containerStyle}>
-      <div style={wrapperStyle}>
-        {/* Imagen de fondo */}
-        <img src={currentBgSrc} alt="" style={{ ...imageStyle, display: 'block' }} />
+  // Separar el filterOverlay de los demás elementos
+  const overlayElement = elements.find(el => el.id === 'filterOverlay');
+  const otherElements = elements.filter(el => el.id !== 'filterOverlay');
 
-        {/* Elementos posicionados sobre la imagen (Lotties o PNGs) */}
-        {elements.map((element) => (
-          <InteractiveElement
-            key={element.id}
-            element={element}
-            style={getElementStyle(element)}
-            isMobile={isMobile}
+  return (
+    <>
+      {/* Overlay que cubre toda la pantalla */}
+      {overlayElement && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            zIndex: overlayElement.zIndex || 1,
+            pointerEvents: 'none',
+          }}
+        >
+          <img
+            src={overlayElement.imageSrc}
+            alt=""
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              opacity: overlayElement.opacity !== undefined ? overlayElement.opacity : 1,
+            }}
           />
-        ))}
+        </div>
+      )}
+
+      <div style={containerStyle}>
+        <div style={wrapperStyle}>
+          {/* Imagen de fondo */}
+          <img src={currentBgSrc} alt="" style={{ ...imageStyle, display: 'block' }} />
+
+          {/* Elementos posicionados sobre la imagen (Lotties o PNGs) */}
+          {otherElements.map((element) => (
+            <InteractiveElement
+              key={element.id}
+              element={element}
+              style={getElementStyle(element)}
+              isMobile={isMobile}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 
@@ -699,7 +876,6 @@ const MuteButton = () => {
     <button
       style={buttonStyle}
       onClick={handleToggle}
-      onTouchEnd={handleToggle}
       aria-label={isMuted ? 'Unmute' : 'Mute'}
     >
       {isMuted ? (
@@ -722,4 +898,4 @@ const MuteButton = () => {
 };
 
 export default BackgroundGroup;
-export { MuteButton, AudioManager };
+export { MuteButton, AudioManager, BackgroundAudioManager };
