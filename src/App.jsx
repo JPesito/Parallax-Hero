@@ -135,7 +135,7 @@ const backgroundGroup = {
     { id: 'lightFilter1', imageSrc: lightFilter, opacity: 0.1, x: 30, y: 20, width: 800, zIndex: 6, mobileX: 19, mobileY: 194, mobileWidth: 505 },
     { id: 'lightFilter2', imageSrc: lightFilter, opacity: 0.1, x: 585, y: 90, width: 500, zIndex: 6, mobileX: 370, mobileY: 255, mobileWidth: 316 },
     { id: 'lightFilter3', imageSrc: lightFilter, opacity: 0.1, x: 900, y: 0, width: 1000, zIndex: 6, mobileX: 569, mobileY: 177, mobileWidth: 632 },
-    { id: 'filterOverlay', imageSrc: filterOverlay, opacity: 0.6, x: 0, y: 0, width: 1771, zIndex: 1, mobileX: 0, mobileY: 0, mobileWidth: 1120 },
+    // filterOverlay se renderiza directamente en App.jsx (fuera del transform del Hero)
 
     // Imagenes PNG
     { id: 'robot1', imageSrc: robot1, x: -198, y: 190, width: 560, zIndex: 2, depth: 0.95, mobileX: -125, mobileY: 300, mobileWidth: 354 },
@@ -250,6 +250,31 @@ function App() {
           smoothing={0.1}
           backgroundColor="#0a0a0a"
         />
+
+        {/* Filter overlay - fuera del Hero para que position:fixed funcione */}
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            zIndex: 10,
+            pointerEvents: 'none',
+          }}
+        >
+          <img
+            src={filterOverlay}
+            alt=""
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              opacity: 0.7,
+            }}
+          />
+        </div>
+
         <MuteButton />
       </div>
     </>
